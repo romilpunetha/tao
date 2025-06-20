@@ -1,0 +1,36 @@
+[package]
+name = "tao_database"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core dependencies
+lru = "0.14.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thrift = "0.17.0"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full", "net"] }
+
+# Web server
+axum = "0.8.4"
+tower = "0.5.0"
+tower-http = { version = "0.6.1", features = ["cors", "fs"] }
+hyper = { version = "1.0", features = ["full"] }
+
+# SQLx async database with connection pooling
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+base64 = "0.22"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+
+[[bin]]
+name = "tao_database"
+path = "src/main.rs"

@@ -1,0 +1,56 @@
+# === Rust ===
+target/
+**/*.rs.bk
+.cargo/
+Cargo.lock  # include only if this is a library
+data/
+.claude/
+
+# === React Frontend ===
+node_modules/
+build/
+dist/
+.env
+.env.*
+.cache/
+.vite/
+.npm/
+.yarn/
+.pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+npm-debug.log*
+coverage/
+
+# === SQL / DB files ===
+*.sqlite
+*.sqlite3
+*.db
+*.sql
+*.dump
+*.bak
+*.db-journal
+*.db-wal
+*.db-shm
+
+# === OS-specific files ===
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*~
+
+# === Editor / IDE ===
+.vscode/
+*.code-workspace
+.idea/
+*.iml
+
+# === Logs & temp files ===
+*.log
+*.dmp
+*.tmp
+*.old
+*.swp
+*.swo
+*.bak
