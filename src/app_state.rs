@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use crate::{
-    database::TaoDatabase,
-    tao_interface::TaoInterface,
+    core::TaoDatabase,
+    infrastructure::TaoInterface,
     config::Config,
 };
 

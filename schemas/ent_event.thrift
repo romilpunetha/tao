@@ -1,10 +1,9 @@
-namespace rs tao_db.schemas.ent_event
+namespace rs tao_database.models.ent_event
 
-// EntEvent - TAO Entity Schema
+// EntEvent - Generated from Ent Schema
 struct EntEvent {
-  1: required i64 created_time, // Unix timestamp when entity was created
-  2: optional i64 updated_time, // Unix timestamp when entity was last updated
-  3: required string title
-  4: optional string description
-  5: required i64 start_time
+  1: required string name,
+  2: optional string description,
+  3: required i64 event_time,
+  4: required i64 created_time,
 }

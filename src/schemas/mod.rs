@@ -2,13 +2,19 @@
 
 pub mod user_schema;
 pub mod post_schema;
-pub mod simple_schemas;
+pub mod comment_schema;
+pub mod group_schema;
+pub mod page_schema;
+pub mod event_schema;
 
-use crate::ent_schema::SchemaRegistry;
+use crate::framework::SchemaRegistry;
 
 pub use user_schema::UserSchema;
 pub use post_schema::PostSchema;
-pub use simple_schemas::{CommentSchema, GroupSchema, PageSchema, EventSchema};
+pub use comment_schema::CommentSchema;
+pub use group_schema::GroupSchema;
+pub use page_schema::PageSchema;
+pub use event_schema::EventSchema;
 
 /// Initialize and register all schemas
 pub fn create_schema_registry() -> SchemaRegistry {

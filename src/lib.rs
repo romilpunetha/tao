@@ -1,36 +1,30 @@
 // TAO Database - Production-ready async implementation with SQLx and Thrift
 
-// Core modules
-pub mod cache;
-pub mod database;
-pub mod entities;
-pub mod thrift_utils;
-pub mod models;
-pub mod viewer;
-pub mod id_generator;
-pub mod tao_operations;
-pub mod inverse_associations;
+// Core Framework - Ent schema system and code generation
+pub mod framework;
 
-// Ent Framework modules
-pub mod ent_schema;
-pub mod ent_codegen;
-pub mod ent_hooks;
-pub mod ent_privacy;
+// Core Infrastructure - Database, caching, utilities
+// pub mod core;
+
+// TAO Infrastructure - High-level TAO operations
+// pub mod infrastructure;
+
+// Schema Definitions - Entity schemas defined by developers
 pub mod schemas;
 
-// Generated entities with Thrift + TAO integration
-pub mod generated;
+// Generated Code - Complete entities with Thrift + TAO functionality
+pub mod models;
 
-// Application architecture
+// Domain-Driven Organization - Entities organized by domain
+pub mod domains;
+
+// Application Layer
+// pub mod config;
+// pub mod app_state;
+// pub mod services;
+
+// Common utilities
 pub mod error;
-pub mod config;
-pub mod app_state;
-pub mod tao_interface;
 
-// Services - High-level business logic
-pub mod services;
-
-// Re-exports for convenience
-pub use app_state::AppState;
-pub use config::Config;
+// Re-exports for convenience  
 pub use error::{AppError, AppResult};

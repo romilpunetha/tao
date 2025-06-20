@@ -33,7 +33,6 @@ A modern implementation of Meta's TAO (The Associations and Objects) system usin
 1. **Clone and enter the project**:
    ```bash
    git clone <repository-url>
-   cd tao_db
    ```
 
 2. **Start development environment**:

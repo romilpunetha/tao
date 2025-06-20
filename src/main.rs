@@ -8,7 +8,7 @@ use tower_http::cors::CorsLayer;
 use tao_database::{
     config::Config,
     app_state::AppState,
-    tao_interface::create_tao_router,
+    infrastructure::create_tao_router,
 };
 
 #[tokio::main]

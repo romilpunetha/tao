@@ -1,54 +1,40 @@
-namespace rs tao_db.thrift
+namespace rs tao_core
 
-// TAO Core Data Structures - matching Meta's TAO architecture
-
-// TAO Object - represents all entities in the system
+// Core TAO object type
 struct TaoObject {
   1: required i64 id,
   2: required string object_type,
   3: required binary data,
-  4: required i64 created,
-  5: required i64 updated
+  4: required i64 created_time,
+  5: required i64 updated_time,
 }
 
-// TAO Association - represents all relations/edges between entities
+// TAO association type
 struct TaoAssociation {
-  1: required i64 edge_id,
-  2: required i64 source_id,
-  3: required i64 target_id,
-  4: required string association_type,
-  5: optional binary association_data,
-  6: required i64 created,
-  7: required i64 updated,
-  8: required i64 time_field  // TAO's special time attribute for creation-time locality
+  1: required i64 id,
+  2: required i64 id1,
+  3: required i64 id2,
+  4: required string assoc_type,
+  5: optional binary data,
+  6: required i64 created_time,
+  7: required i64 updated_time,
+  8: optional i64 time1,
+  9: optional i64 time2,
 }
 
-// TAO Index - for efficient queries like "all friends of user X"
-struct TaoIndex {
-  1: required i64 entity_id,
-  2: required i64 edge_id,
-  3: required i64 target_entity_id,
-  4: required string association_type,
-  5: required i64 created,
-  6: required i64 updated
-}
-
-// TAO Query structures
+// TAO association query
 struct TaoAssociationQuery {
   1: required i64 id1,
-  2: optional i64 id2,
-  3: required string assoc_type,
-  4: optional i64 start_time,
-  5: optional i64 end_time,
+  2: required string assoc_type,
+  3: optional list<i64> id2s,
+  4: optional i64 time_low,
+  5: optional i64 time_high,
   6: optional i32 limit,
-  7: optional i64 offset
 }
 
-struct TaoBatchObjectRequest {
-  1: required list<i64> object_ids,
-  2: required string object_type
-}
-
-struct TaoBatchAssociationRequest {
-  1: required list<TaoAssociationQuery> queries
+// TAO index for performance
+struct TaoIndex {
+  1: required string name,
+  2: required list<string> fields,
+  3: required bool unique,
 }
