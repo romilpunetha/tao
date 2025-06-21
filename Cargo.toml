@@ -20,7 +20,7 @@ tower-http = { version = "0.6.1", features = ["cors", "fs"] }
 hyper = { version = "1.0", features = ["full"] }
 
 # SQLx async database with connection pooling
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
 
 # Utilities
 uuid = { version = "1.0", features = ["v4", "serde"] }
@@ -32,6 +32,3 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 async-trait = "0.1"
 regex = "1.10"
 
-[[bin]]
-name = "tao_database"
-path = "src/main.rs"

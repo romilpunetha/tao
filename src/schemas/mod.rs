@@ -7,7 +7,7 @@ pub mod group_schema;
 pub mod page_schema;
 pub mod event_schema;
 
-use crate::framework::SchemaRegistry;
+use crate::ent_framework::SchemaRegistry;
 
 pub use user_schema::UserSchema;
 pub use post_schema::PostSchema;
