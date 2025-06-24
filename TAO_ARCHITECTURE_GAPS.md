@@ -1,6 +1,8 @@
 # TAO Architecture Gaps Analysis
 
-## Critical Missing Components
+**❗️❗️❗️ NOTE: This document is largely outdated. For the current implementation status, please refer to `TAO_IMPLEMENTATION_STATUS.md`. Many of the gaps listed below have been addressed. ❗️❗️❗️**
+
+## Critical Missing Components (Historical View)
 
 ### 1. **Sharding & ID Generation** (Critical)
 **Meta's TAO:** 64-bit IDs with embedded shard_id for automatic routing
@@ -29,12 +31,12 @@
 
 ### 6. **Batch Operations** (High Priority)
 **Meta's TAO:** Efficient batch reads for object/association queries
-**Our Implementation:** Single object operations only
+**Our Implementation:** Single object operations only (Status: Partially Implemented - See `TAO_IMPLEMENTATION_STATUS.md`)
 **Solution:** Implement batch API using existing Thrift batch structures
 
 ### 7. **Schema-Driven Code Generation** (Medium Priority)
 **Meta's Ent:** Schema-as-code with automatic API generation
-**Our Implementation:** Manual entity definitions
+**Our Implementation:** Manual entity definitions (Status: Implemented via `entc` - See `TAO_IMPLEMENTATION_STATUS.md` and `ENT_FRAMEWORK_IMPLEMENTATION.md`)
 **Solution:** Schema compiler with entity generation
 
 ### 8. **Geographic Distribution** (Future)

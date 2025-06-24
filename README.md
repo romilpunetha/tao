@@ -165,24 +165,72 @@ CREATE TABLE associations (
 ## 🔧 Development
 
 ### Project Structure
+
 ```
 tao_db/
-├── src/                    # Rust backend
-│   ├── async_db.rs        # Async database layer
-│   ├── async_service.rs   # Business logic
-│   ├── server.rs          # Axum web server
-│   ├── types.rs           # Shared type definitions
-│   └── ...
-├── frontend/              # React frontend
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── hooks/         # Custom hooks
-│   │   ├── services/      # API client
-│   │   └── types/         # TypeScript types
-│   └── ...
-├── scripts/               # Build and dev scripts
-└── thrift/               # Thrift schema definitions
+├── Cargo.toml             # Rust project configuration
+├── build.rs               # Rust build script
+├── src/                   # Rust backend source code
+│   ├── bin/               # Binary crates (e.g., entc code generator)
+│   │   └── entc.rs
+│   ├── codegen/           # Code generation logic used by entc
+│   ├── core/              # Core TAO logic and utilities (e.g., tao_core.thrift)
+│   ├── domains/           # Domain-specific generated code
+│   │   └── <entity>/      # Code for a specific entity (e.g., user)
+│   │       ├── entity.thrift # Generated Thrift definition for the entity
+│   │       ├── entity.rs    # Rust struct generated from entity.thrift
+│   │       ├── builder.rs   # Generated Rust builder pattern
+│   │       ├── ent_impl.rs  # Generated Ent trait implementation
+│   │       └── mod.rs       # Module file for the entity domain
+│   ├── ent_framework/     # Core Ent framework traits and logic
+│   ├── infrastructure/    # Database, caching, ID generation
+│   ├── schemas/           # Rust schema definitions (input for entc)
+│   │   └── <entity_schema>.rs # e.g., user_schema.rs
+│   ├── error.rs           # Custom error types
+│   ├── lib.rs             # Main library crate
+│   └── main.rs            # Main server binary (if tao_database_server is not in bin/)
+├── frontend/              # React frontend application
+│   ├── package.json
+│   └── src/
+├── scripts/               # Build, development, and utility scripts
+├── schemas/               # Root directory for original Thrift files (DEPRECATED - see src/domains & src/schemas)
+├── thrift/                # Root directory for other Thrift files (DEPRECATED - tao_core.thrift moved to src/core)
+├── ENT_FRAMEWORK_IMPLEMENTATION.md # Details on the Ent framework implementation
+├── TAO_IMPLEMENTATION_STATUS.md    # Current status of TAO features
+└── README.md
 ```
+*(Note: The `schemas/` and `thrift/` directories at the root are planned for removal/cleanup as part of architectural improvements, centralizing schema definitions as described above.)*
+
+### Code Generation Workflow
+
+The project uses a schema-first approach for defining entities, powered by a custom `entc` (Ent Compiler) tool and Apache Thrift.
+
+1.  **Define/Modify Rust Schemas:**
+    *   Entity structures, fields, validations, and edges are defined in Rust modules located in `src/schemas/` (e.g., `src/schemas/user_schema.rs`). These files implement the `EntSchema` trait.
+
+2.  **Generate Domain Code and Thrift Definitions (`entc`):**
+    *   Run the `entc` tool to process your Rust schemas:
+        ```bash
+        cargo run --bin entc generate
+        ```
+    *   This generates several files for each entity within `src/domains/<entity>/`:
+        *   `entity.thrift`: A Thrift data structure definition for the entity.
+        *   `builder.rs`: Rust code for the builder pattern.
+        *   `ent_impl.rs`: Rust code for `Ent` trait implementations and other entity-specific logic.
+        *   `mod.rs`: The module file for the domain.
+
+3.  **Compile Thrift Definitions to Rust Structs:**
+    *   Use the Apache Thrift compiler to generate Rust structs (implementing `TSerializable`, etc.) from the `*.thrift` files created by `entc`. A helper script is provided (or will be added):
+        ```bash
+        ./scripts/compile_domain_thrifts.sh
+        ```
+        *(If this script is not yet available, this step requires manual invocation of the `thrift` command, e.g., `thrift -o src/domains/<entity>/ -gen rs src/domains/<entity>/entity.thrift`, followed by moving the generated Rust file from `gen-rs/...` to `src/domains/<entity>/entity.rs`)*
+    *   This creates the `src/domains/<entity>/entity.rs` files.
+
+4.  **Commit Generated Files:**
+    *   All generated files (from both `entc` and the Thrift compiler) are typically committed to the repository.
+
+Refer to `ENT_FRAMEWORK_IMPLEMENTATION.md` for more details on schema definition and `entc` capabilities.
 
 ### Key Technologies
 
