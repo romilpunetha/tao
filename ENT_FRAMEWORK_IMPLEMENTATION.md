@@ -136,10 +136,32 @@ impl EntSchema for UserSchema {
 ```
 
 ### **Code Generation Usage**
-```bash
-# Generate entity code from schemas
-cargo run --bin entc generate
 
+The code generation process involves two main steps:
+
+1.  **Run `entc` to generate domain logic and Thrift definitions:**
+    This step reads your Rust schema definitions (e.g., in `src/schemas/user_schema.rs`) and generates the core domain files:
+    *   `src/domains/<entity>/entity.thrift` (Thrift data structure definition)
+    *   `src/domains/<entity>/builder.rs` (Rust builder pattern)
+    *   `src/domains/<entity>/ent_impl.rs` (Rust `Ent` trait implementations and other logic)
+    *   `src/domains/<entity>/mod.rs` (Rust module file for the domain)
+
+    ```bash
+    # Generate domain files and Thrift definitions from Rust schemas
+    cargo run --bin entc generate
+    ```
+
+2.  **Compile Thrift definitions to Rust code:**
+    This step uses the Apache Thrift compiler to generate Rust structs (e.g., `src/domains/<entity>/entity.rs`) from the `entity.thrift` files created in the previous step. A helper script is provided for this:
+
+    ```bash
+    # Compile all src/domains/<entity>/entity.thrift files into Rust code
+    ./scripts/compile_domain_thrifts.sh
+    ```
+    *(Note: This script will be added as part of the architectural improvements. If it's not yet present, this step would be manual using the `thrift` command directly.)*
+
+You can also validate your schema definitions using `entc`:
+```bash
 # Validate schema definitions
 cargo run --bin entc validate
 ```

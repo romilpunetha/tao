@@ -52,14 +52,23 @@
 - **Sequential batch fetching** implemented
 - **TODO**: Parallel batch processing for efficiency
 
+## ✅ **IMPLEMENTED - Critical TAO Features** (Continued)
+
+### 7. **Schema-Driven Code Generation (Ent Framework)** ✅
+- **Meta's Ent Framework Style**: Schema-as-code (Rust structs in `src/schemas/`) with robust code generation.
+- **Tooling**: Uses the `entc` binary (`cargo run --bin entc generate`) to compile Rust schemas into:
+    - Thrift definitions (`src/domains/<entity>/entity.thrift`)
+    - Rust builder patterns (`src/domains/<entity>/builder.rs`)
+    - Ent trait implementations (`src/domains/<entity>/ent_impl.rs`)
+    - Domain module files (`src/domains/<entity>/mod.rs`)
+- **Process**: A subsequent Thrift compilation step (e.g., via `scripts/compile_domain_thrifts.sh`) generates type-safe Rust structs (`src/domains/<entity>/entity.rs`) from the Thrift definitions.
+- **Status**: Fully implemented and operational. Refer to `ENT_FRAMEWORK_IMPLEMENTATION.md` for more details.
+- **Note**: This replaces previous considerations of a schema compiler as a "Future" item. GraphQL schema generation from these schemas remains a potential future enhancement.
+
+
 ## ❌ **NOT YET IMPLEMENTED - Future Phases**
 
-### 1. **Schema-Driven Code Generation** ❌
-- **Meta's Ent Framework**: Schema-as-code with automatic API generation
-- **Future**: Schema compiler for entity generation
-- **Future**: GraphQL schema generation
-
-### 2. **Consistency Guarantees** ❌
+### 1. **Consistency Guarantees** ❌
 - **Meta's TAO**: Eventual consistency with read-after-write guarantees
 - **Future**: Session consistency and tier-aware reads
 
@@ -114,8 +123,8 @@ let followers = tao_interface.assoc_range(
 | **Inverse Associations** | ✅ Complete | 85% |
 | **Caching Layer** | ⚠️ Partial | 30% |
 | **Batch Operations** | ⚠️ Partial | 60% |
+| **Schema Generation (Ent Framework via `entc`)** | ✅ Complete | 95% (GraphQL from schema is future) |
 | **Consistency Model** | ❌ Missing | 0% |
-| **Schema Generation** | ❌ Missing | 0% |
 
 ## 🚀 **Next Implementation Phases**
 
