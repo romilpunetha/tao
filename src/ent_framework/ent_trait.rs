@@ -3,8 +3,9 @@
 
 use async_trait::async_trait;
 use crate::error::AppResult;
-use crate::infrastructure::tao::TaoOperations;
+use crate::infrastructure::tao_core::TaoOperations;
 use thrift::protocol::TSerializable;
+use std::sync::Arc;
 
 /// Entity trait that all generated entities implement
 /// Provides both entity identity and common CRUD operations templated for all entity types
@@ -50,12 +51,9 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     
     /// Load entity with nullable ID - returns None if not found (TYPE-SAFE)
     /// Only returns entities of the correct type, ensuring EntUser::gen_nullable(post_id) returns None
-    async fn gen_nullable(entity_id: Option<i64>) -> AppResult<Option<Self>> {
+    async fn gen_nullable(tao: &Arc<dyn TaoOperations>, entity_id: Option<i64>) -> AppResult<Option<Self>> {
         match entity_id {
             Some(id) => {
-                let tao = crate::infrastructure::tao::get_tao().await?;
-                let tao = tao.lock().await;
-                
                 // Use type-aware query to ensure we only get entities of the correct type
                 let objects = tao.get_by_id_and_type(vec![id], Self::ENTITY_TYPE.to_string()).await?;
                 
@@ -76,10 +74,7 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     
     /// Load entity with enforcement - errors if not found (TYPE-SAFE)
     /// Only loads entities of the correct type, ensuring type safety across the database layer
-    async fn gen_enforce(entity_id: i64) -> AppResult<Self> {
-        let tao = crate::infrastructure::tao::get_tao().await?;
-        let tao = tao.lock().await;
-        
+    async fn gen_enforce(tao: &Arc<dyn TaoOperations>, entity_id: i64) -> AppResult<Self> {
         // Use type-aware query to ensure we only get entities of the correct type
         let objects = tao.get_by_id_and_type(vec![entity_id], Self::ENTITY_TYPE.to_string()).await?;
         
@@ -96,7 +91,7 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     
     /// Update existing entity (TYPE-SAFE)
     /// Only updates entities of the correct type, ensuring type safety
-    async fn update(&mut self) -> AppResult<()> {
+    async fn update(&mut self, tao: &Arc<dyn TaoOperations>) -> AppResult<()> {
         let validation_errors = self.validate()?;
         if !validation_errors.is_empty() {
             return Err(crate::error::AppError::Validation(
@@ -105,8 +100,6 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
         }
 
         let data = self.serialize_to_bytes()?;
-        let tao = crate::infrastructure::tao::get_tao().await?;
-        let tao = tao.lock().await;
         
         // Use type-aware update to ensure we only update entities of the correct type
         let updated = tao.obj_update_by_type(self.id(), Self::ENTITY_TYPE.to_string(), data).await?;
@@ -121,33 +114,24 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     
     /// Delete entity by ID (TYPE-SAFE)
     /// Only deletes entities of the correct type, ensuring EntUser::delete(post_id) returns false
-    async fn delete(entity_id: i64) -> AppResult<bool> {
-        let tao = crate::infrastructure::tao::get_tao().await?;
-        let tao = tao.lock().await;
-        
+    async fn delete(tao: &Arc<dyn TaoOperations>, entity_id: i64) -> AppResult<bool> {
         // Use type-aware delete to ensure we only delete entities of the correct type
         tao.obj_delete_by_type(entity_id, Self::ENTITY_TYPE.to_string()).await
     }
     
     /// Check if entity exists (TYPE-SAFE)
     /// Only checks for entities of the correct type, ensuring type safety
-    async fn exists(entity_id: i64) -> AppResult<bool> {
-        let tao = crate::infrastructure::tao::get_tao().await?;
-        let tao = tao.lock().await;
-        
+    async fn exists(tao: &Arc<dyn TaoOperations>, entity_id: i64) -> AppResult<bool> {
         // Use type-aware exists to ensure we only check for entities of the correct type
         tao.obj_exists_by_type(entity_id, Self::ENTITY_TYPE.to_string()).await
     }
     
     /// Batch load multiple entities (TYPE-SAFE)
     /// Efficiently loads multiple entities of the correct type in a single database query
-    async fn load_many(entity_ids: Vec<i64>) -> AppResult<Vec<Option<Self>>> {
+    async fn load_many(tao: &Arc<dyn TaoOperations>, entity_ids: Vec<i64>) -> AppResult<Vec<Option<Self>>> {
         if entity_ids.is_empty() {
             return Ok(Vec::new());
         }
-        
-        let tao = crate::infrastructure::tao::get_tao().await?;
-        let tao = tao.lock().await;
         
         // Use type-aware batch query for efficiency
         let objects = tao.get_by_id_and_type(entity_ids.clone(), Self::ENTITY_TYPE.to_string()).await?;

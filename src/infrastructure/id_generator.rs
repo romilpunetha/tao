@@ -8,6 +8,7 @@ use std::sync::{OnceLock, Arc};
 /// TAO ID Generator following Meta's pattern
 /// 64-bit ID format: [timestamp:42][shard_id:10][sequence:12]
 /// This allows for 1024 shards and 4096 IDs per millisecond per shard
+#[derive(Debug)]
 pub struct TaoIdGenerator {
     shard_id: u16,
     sequence: AtomicU64,

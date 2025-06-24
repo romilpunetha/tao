@@ -17,6 +17,15 @@ pub enum AppError {
     SerializationError(String),
     DeserializationError(String),
     TaoError(String),
+    ShardError(String),
+    TimeoutError(String),
+    ConfigurationError(String),
+    IdGenerationError(String),
+    // Security and HTTP errors
+    Unauthorized(String),
+    Forbidden(String),
+    TooManyRequests(String),
+    ServiceUnavailable(String),
 }
 
 impl fmt::Display for AppError {
@@ -31,6 +40,14 @@ impl fmt::Display for AppError {
             AppError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
             AppError::DeserializationError(msg) => write!(f, "Deserialization error: {}", msg),
             AppError::TaoError(msg) => write!(f, "TAO error: {}", msg),
+            AppError::ShardError(msg) => write!(f, "Shard error: {}", msg),
+            AppError::TimeoutError(msg) => write!(f, "Timeout error: {}", msg),
+            AppError::ConfigurationError(msg) => write!(f, "Configuration error: {}", msg),
+            AppError::IdGenerationError(msg) => write!(f, "ID generation error: {}", msg),
+            AppError::Unauthorized(msg) => write!(f, "Unauthorized: {}", msg),
+            AppError::Forbidden(msg) => write!(f, "Forbidden: {}", msg),
+            AppError::TooManyRequests(msg) => write!(f, "Too many requests: {}", msg),
+            AppError::ServiceUnavailable(msg) => write!(f, "Service unavailable: {}", msg),
         }
     }
 }
@@ -56,6 +73,14 @@ impl IntoResponse for AppError {
             AppError::SerializationError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::DeserializationError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::TaoError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::ShardError(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg.clone()),
+            AppError::TimeoutError(msg) => (StatusCode::REQUEST_TIMEOUT, msg.clone()),
+            AppError::ConfigurationError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::IdGenerationError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
+            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
+            AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
+            AppError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg.clone()),
         };
 
         let body = Json(json!({

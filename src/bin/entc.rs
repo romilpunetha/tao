@@ -2,8 +2,6 @@
 // Equivalent to Meta's entc command for generating entity code from schemas
 
 use std::env;
-use std::fs;
-use std::path::Path;
 use tao_database::{
     codegen::CodeGenerator,
     schemas::{create_schema_registry, validate_schemas},

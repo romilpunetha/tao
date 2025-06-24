@@ -20,4 +20,4 @@ echo "  Cache: $CACHE_CAPACITY items"
 
 # Build and run
 cargo build --release
-cargo run --bin tao_database
+cargo run --bin tao_server

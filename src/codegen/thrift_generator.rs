@@ -3,18 +3,18 @@ use crate::ent_framework::{FieldDefinition, EntityType, SchemaRegistry, FieldTyp
 use super::utils;
 
 pub struct ThriftGenerator<'a> {
-    registry: &'a SchemaRegistry,
+    _registry: &'a SchemaRegistry,
 }
 
 impl<'a> ThriftGenerator<'a> {
     pub fn new(registry: &'a SchemaRegistry) -> Self {
-        Self { registry }
+        Self { _registry: registry }
     }
 
     /// Generate pure Thrift structure file
     pub fn generate_thrift_file(&self, entity_type: &EntityType, fields: &[FieldDefinition]) -> Result<(), String> {
         let domain_name = utils::entity_domain_name(entity_type);
-        let struct_name = utils::entity_struct_name(entity_type);
+        let _struct_name = utils::entity_struct_name(entity_type);
         let thrift_path = format!("src/domains/{}/entity.thrift", domain_name);
         
         let mut thrift_content = String::new();

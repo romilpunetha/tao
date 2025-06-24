@@ -3,12 +3,12 @@ use crate::ent_framework::{FieldDefinition, EdgeDefinition, EntityType, SchemaRe
 use super::utils;
 
 pub struct EntGenerator<'a> {
-    registry: &'a SchemaRegistry,
+    _registry: &'a SchemaRegistry,
 }
 
 impl<'a> EntGenerator<'a> {
     pub fn new(registry: &'a SchemaRegistry) -> Self {
-        Self { registry }
+        Self { _registry: registry }
     }
 
     /// Generate Ent trait implementation
@@ -40,25 +40,31 @@ impl<'a> EntGenerator<'a> {
 
     /// Generate necessary imports including cross-entity imports for edges
     fn generate_imports(&self, struct_name: &str, edges: &[EdgeDefinition]) -> String {
-        let mut imports = format!(r#"use crate::ent_framework::Entity;
+        let mut imports = format!(r#"use std::sync::Arc;
+use crate::ent_framework::Entity;
 use crate::error::AppResult;
 use super::entity::{};
 use regex;
-use crate::infrastructure::tao::TaoOperations;
+use crate::infrastructure::TaoOperations;
 "#, struct_name);
 
-        // Add cross-entity imports for edge traversal
+        // Add cross-entity imports for edge traversal, excluding current entity to avoid duplicates
+        let current_entity_type = self.entity_type_from_struct_name(struct_name);
         let mut imported_entities = std::collections::HashSet::new();
+        
         for edge in edges {
-            let entity_import = match edge.target_entity {
-                crate::ent_framework::EntityType::EntUser => "use crate::domains::user::EntUser;",
-                crate::ent_framework::EntityType::EntPost => "use crate::domains::post::EntPost;",
-                crate::ent_framework::EntityType::EntGroup => "use crate::domains::group::EntGroup;",
-                crate::ent_framework::EntityType::EntPage => "use crate::domains::page::EntPage;",
-                crate::ent_framework::EntityType::EntEvent => "use crate::domains::event::EntEvent;",
-                crate::ent_framework::EntityType::EntComment => "use crate::domains::comment::EntComment;",
-            };
-            imported_entities.insert(entity_import);
+            // Skip importing the current entity type to avoid duplicate imports
+            if edge.target_entity != current_entity_type {
+                let entity_import = match edge.target_entity {
+                    crate::ent_framework::EntityType::EntUser => "use crate::domains::user::EntUser;",
+                    crate::ent_framework::EntityType::EntPost => "use crate::domains::post::EntPost;",
+                    crate::ent_framework::EntityType::EntGroup => "use crate::domains::group::EntGroup;",
+                    crate::ent_framework::EntityType::EntPage => "use crate::domains::page::EntPage;",
+                    crate::ent_framework::EntityType::EntEvent => "use crate::domains::event::EntEvent;",
+                    crate::ent_framework::EntityType::EntComment => "use crate::domains::comment::EntComment;",
+                };
+                imported_entities.insert(entity_import);
+            }
         }
         
         for import in imported_entities {
@@ -68,6 +74,19 @@ use crate::infrastructure::tao::TaoOperations;
         imports.push('\n');
 
         imports
+    }
+
+    /// Helper to determine entity type from struct name
+    fn entity_type_from_struct_name(&self, struct_name: &str) -> crate::ent_framework::EntityType {
+        match struct_name {
+            "EntUser" => crate::ent_framework::EntityType::EntUser,
+            "EntPost" => crate::ent_framework::EntityType::EntPost,
+            "EntGroup" => crate::ent_framework::EntityType::EntGroup,
+            "EntPage" => crate::ent_framework::EntityType::EntPage,
+            "EntEvent" => crate::ent_framework::EntityType::EntEvent,
+            "EntComment" => crate::ent_framework::EntityType::EntComment,
+            _ => panic!("Unknown entity type for struct: {}", struct_name),
+        }
     }
 
     /// Generate Entity trait implementation with comprehensive validations
@@ -191,18 +210,17 @@ use crate::infrastructure::tao::TaoOperations;
                     crate::ent_framework::EntityType::EntComment => "EntComment",
                 };
                 
-                let edge_type = edge.name.to_uppercase();
+                let _edge_type = edge.name.to_uppercase();
                 
                 // Generate get method with real TAO implementation
                 edge_methods.push_str(&format!("    /// Get {} via TAO edge traversal\n", edge.name.replace('_', " ")));
                 edge_methods.push_str(&format!("    pub async fn {}(&self) -> AppResult<Vec<{}>> {{\n", method_name, return_type));
-                edge_methods.push_str("        let tao = crate::infrastructure::tao::get_tao().await?;\n");
-                edge_methods.push_str("        let tao = tao.lock().await;\n");
+                edge_methods.push_str("        let tao = crate::infrastructure::tao_core::get_tao_core().await?;\n");
                 edge_methods.push_str(&format!("        let neighbor_ids = tao.get_neighbor_ids(self.id(), \"{}\".to_string(), Some(100)).await?;\n", edge.name));
                 edge_methods.push_str("        \n");
                 edge_methods.push_str("        let mut results = Vec::new();\n");
                 edge_methods.push_str("        for id in neighbor_ids {\n");
-                edge_methods.push_str(&format!("            if let Some(entity) = {}::gen_nullable(Some(id)).await? {{\n", return_type));
+                edge_methods.push_str(&format!("            if let Some(entity) = {}::gen_nullable(&tao, Some(id)).await? {{\n", return_type));
                 edge_methods.push_str("                results.push(entity);\n");
                 edge_methods.push_str("            }\n");
                 edge_methods.push_str("        }\n");
@@ -215,8 +233,7 @@ use crate::infrastructure::tao::TaoOperations;
                 let count_method = format!("count_{}", edge.name);
                 edge_methods.push_str(&format!("    /// Count {} via TAO edge traversal\n", edge.name.replace('_', " ")));
                 edge_methods.push_str(&format!("    pub async fn {}(&self) -> AppResult<i64> {{\n", count_method));
-                edge_methods.push_str("        let tao = crate::infrastructure::tao::get_tao().await?;\n");
-                edge_methods.push_str("        let tao = tao.lock().await;\n");
+                edge_methods.push_str("        let tao = crate::infrastructure::tao_core::get_tao_core().await?;\n");
                 edge_methods.push_str(&format!("        let count = tao.assoc_count(self.id(), \"{}\".to_string()).await?;\n", edge.name));
                 edge_methods.push_str("        Ok(count as i64)\n");
                 edge_methods.push_str("    }\n");
@@ -227,10 +244,9 @@ use crate::infrastructure::tao::TaoOperations;
                     let add_method = format!("add_{}", edge.name.trim_end_matches('s')); // Remove plural 's'
                     edge_methods.push_str(&format!("    /// Add {} association via TAO\n", edge.name.trim_end_matches('s').replace('_', " ")));
                     edge_methods.push_str(&format!("    pub async fn {}(&self, target_id: i64) -> AppResult<()> {{\n", add_method));
-                    edge_methods.push_str("        let tao = crate::infrastructure::tao::get_tao().await?;\n");
-                    edge_methods.push_str("        let tao = tao.lock().await;\n");
-                    edge_methods.push_str("        \n");
-                    edge_methods.push_str("        let assoc = crate::infrastructure::tao::create_tao_association(\n");
+                    edge_methods.push_str("        let tao = crate::infrastructure::tao_core::get_tao_core().await?;\n");
+                        edge_methods.push_str("        \n");
+                    edge_methods.push_str("        let assoc = crate::infrastructure::create_tao_association(\n");
                     edge_methods.push_str("            self.id(),\n");
                     edge_methods.push_str(&format!("            \"{}\".to_string(),\n", edge.name));
                     edge_methods.push_str("            target_id,\n");
@@ -246,9 +262,8 @@ use crate::infrastructure::tao::TaoOperations;
                     let remove_method = format!("remove_{}", edge.name.trim_end_matches('s'));
                     edge_methods.push_str(&format!("    /// Remove {} association via TAO\n", edge.name.trim_end_matches('s').replace('_', " ")));
                     edge_methods.push_str(&format!("    pub async fn {}(&self, target_id: i64) -> AppResult<bool> {{\n", remove_method));
-                    edge_methods.push_str("        let tao = crate::infrastructure::tao::get_tao().await?;\n");
-                    edge_methods.push_str("        let tao = tao.lock().await;\n");
-                    edge_methods.push_str(&format!("        tao.assoc_delete(self.id(), \"{}\".to_string(), target_id).await\n", edge.name));
+                    edge_methods.push_str("        let tao = crate::infrastructure::tao_core::get_tao_core().await?;\n");
+                        edge_methods.push_str(&format!("        tao.assoc_delete(self.id(), \"{}\".to_string(), target_id).await\n", edge.name));
                     edge_methods.push_str("    }\n");
                     edge_methods.push_str("    \n");
                 }

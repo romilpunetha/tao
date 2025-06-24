@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use sqlx::{PgPool, Row, Transaction, Postgres};
 use std::sync::Arc;
-use tokio::sync::{OnceCell, Mutex};
+use tokio::sync::OnceCell;
 use crate::error::{AppError, AppResult};
 use crate::ent_framework::{
     TaoId, TaoType, AssocType, TaoAssociation, TaoObject,
@@ -52,6 +52,8 @@ impl<'a> DatabaseTransaction<'a> {
 /// This layer converts TAO operations directly into SQL queries
 #[async_trait]
 pub trait DatabaseInterface: Send + Sync {
+    /// Allow downcasting to concrete database types
+    fn as_any(&self) -> &dyn std::any::Any;
     // Transaction management
     async fn begin_transaction(&self) -> AppResult<DatabaseTransaction>;
 
@@ -89,6 +91,20 @@ pub struct PostgresDatabase {
 impl PostgresDatabase {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Health check to verify database connectivity
+    pub async fn health_check(&self) -> AppResult<()> {
+        sqlx::query("SELECT 1")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Database health check failed: {}", e)))?;
+        Ok(())
+    }
+
+    /// Get connection pool statistics
+    pub fn pool_stats(&self) -> (u32, u32) {
+        (self.pool.num_idle() as u32, self.pool.size() as u32)
     }
 
     /// Initialize TAO database tables with date partitioning and ID sharding
@@ -215,6 +231,10 @@ impl PostgresDatabase {
 
 #[async_trait]
 impl DatabaseInterface for PostgresDatabase {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     async fn begin_transaction(&self) -> AppResult<DatabaseTransaction> {
         let tx = self.pool.begin().await
             .map_err(|e| AppError::DatabaseError(format!("Failed to begin transaction: {}", e)))?;
@@ -584,7 +604,31 @@ static DATABASE_INSTANCE: OnceCell<Arc<dyn DatabaseInterface>> = OnceCell::const
 
 /// Initialize the global database instance with connection
 pub async fn initialize_database(database_url: &str) -> AppResult<()> {
-    let pool = sqlx::PgPool::connect(database_url)
+    // Get connection pool configuration from environment variables
+    let max_connections = std::env::var("DB_MAX_CONNECTIONS")
+        .unwrap_or_else(|_| "20".to_string())
+        .parse::<u32>()
+        .unwrap_or(20);
+    
+    let min_connections = std::env::var("DB_MIN_CONNECTIONS")
+        .unwrap_or_else(|_| "5".to_string())
+        .parse::<u32>()
+        .unwrap_or(5);
+    
+    let acquire_timeout_secs = std::env::var("DB_ACQUIRE_TIMEOUT_SECS")
+        .unwrap_or_else(|_| "8".to_string())
+        .parse::<u64>()
+        .unwrap_or(8);
+    
+    // Configure connection pool for production performance
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(max_connections)                    // Maximum concurrent connections
+        .min_connections(min_connections)                     // Keep minimum connections alive
+        .acquire_timeout(std::time::Duration::from_secs(acquire_timeout_secs))  // Connection timeout
+        .idle_timeout(std::time::Duration::from_secs(600))   // 10 minutes idle timeout
+        .max_lifetime(std::time::Duration::from_secs(1800))  // 30 minutes max connection lifetime
+        .test_before_acquire(true)              // Test connections before use
+        .connect(database_url)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to connect to database: {}", e)))?;
 
@@ -598,7 +642,11 @@ pub async fn initialize_database(database_url: &str) -> AppResult<()> {
     DATABASE_INSTANCE.set(db_interface)
         .map_err(|_| AppError::Internal("Database instance already initialized".to_string()))?;
 
-    println!("✅ Database singleton initialized and tables created");
+    println!("✅ Database singleton initialized with connection pool:");
+    println!("   • Max connections: {}", max_connections);
+    println!("   • Min connections: {}", min_connections);
+    println!("   • Acquire timeout: {}s", acquire_timeout_secs);
+    println!("   • Tables and partitions created");
     Ok(())
 }
 
@@ -614,4 +662,28 @@ pub async fn initialize_database_default() -> AppResult<()> {
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://localhost/tao_dev".to_string());
     initialize_database(&db_url).await
+}
+
+/// Perform database health check
+pub async fn database_health_check() -> AppResult<()> {
+    let db = get_database().await?;
+    
+    // Downcast to PostgresDatabase to access health_check method
+    let postgres_db = db.as_any()
+        .downcast_ref::<PostgresDatabase>()
+        .ok_or_else(|| AppError::Internal("Database is not PostgresDatabase".to_string()))?;
+    
+    postgres_db.health_check().await
+}
+
+/// Get database connection pool statistics
+pub async fn database_pool_stats() -> AppResult<(u32, u32)> {
+    let db = get_database().await?;
+    
+    // Downcast to PostgresDatabase to access pool_stats method
+    let postgres_db = db.as_any()
+        .downcast_ref::<PostgresDatabase>()
+        .ok_or_else(|| AppError::Internal("Database is not PostgresDatabase".to_string()))?;
+    
+    Ok(postgres_db.pool_stats())
 }

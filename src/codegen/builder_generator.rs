@@ -3,12 +3,12 @@ use crate::ent_framework::{FieldDefinition, EntityType, SchemaRegistry};
 use super::utils;
 
 pub struct BuilderGenerator<'a> {
-    registry: &'a SchemaRegistry,
+    _registry: &'a SchemaRegistry,
 }
 
 impl<'a> BuilderGenerator<'a> {
     pub fn new(registry: &'a SchemaRegistry) -> Self {
-        Self { registry }
+        Self { _registry: registry }
     }
 
     /// Generate builder with create() static method and save() instance method
@@ -45,10 +45,9 @@ impl<'a> BuilderGenerator<'a> {
     /// Generate necessary imports for builder
     fn generate_imports(&self, struct_name: &str) -> String {
         format!(r#"use async_trait::async_trait;
-use crate::ent_framework::{{Entity, get_tao}};
-use crate::infrastructure::tao::TaoOperations;
+use crate::ent_framework::Entity;
+use crate::infrastructure::tao::{{TaoOperations, get_tao, current_time_millis}};
 use crate::error::AppResult;
-use crate::infrastructure::tao::current_time_millis;
 use super::entity::{};
 use thrift::protocol::TSerializable;
 
@@ -170,7 +169,6 @@ use thrift::protocol::TSerializable;
 
         save_method.push_str("        // Get TAO singleton instance and save\n");
         save_method.push_str("        let tao = get_tao().await?;\n");
-        save_method.push_str("        let tao = tao.lock().await;\n");
 
         // Create object using TAO - TAO handles ID generation internally
         let entity_type_str = entity_type.as_str();
@@ -190,7 +188,7 @@ use thrift::protocol::TSerializable;
     }
 
     /// Generate create() static method for entity
-    fn generate_entity_create_method(&self, struct_name: &str, builder_name: &str, fields: &[FieldDefinition]) -> Result<String, String> {
+    fn generate_entity_create_method(&self, struct_name: &str, builder_name: &str, _fields: &[FieldDefinition]) -> Result<String, String> {
         let mut create_method = format!("impl {} {{\n", struct_name);
 
         create_method.push_str("    /// Create a new entity builder\n");
