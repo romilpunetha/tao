@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::{
-    tao_core::{TaoOperations, TaoId, TaoType, AssocType, TaoAssociation, TaoObject, AssocQuery},
+    tao_core::{TaoOperations, TaoId, TaoType, AssocType, TaoAssociation, TaoObject, AssocQuery, TaoAssocQuery},
     database::DatabaseTransaction,
     write_ahead_log::{TaoOperation, TaoWriteAheadLog},
     cache_layer::TaoMultiTierCache,
@@ -70,7 +70,7 @@ impl TaoOperations for BaseTao {
         self.core.obj_delete_by_type(id, otype).await
     }
 
-    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>> {
         self.core.assoc_get(query).await
     }
 
@@ -572,7 +572,7 @@ impl TaoOperations for MetricsDecorator {
     }
 
     #[instrument(skip(self), fields(id1 = %query.id1, atype = %query.atype))]
-    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>> {
         let start = Instant::now();
         let result = self.inner.assoc_get(query).await;
         self.record_operation("assoc_get", start, result.is_ok()).await;
@@ -748,7 +748,7 @@ impl TaoOperations for CacheDecorator {
         result
     }
 
-    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>> {
         if !self.enable_caching || query.id2_set.is_some() {
             // Skip cache for complex queries
             return self.inner.assoc_get(query).await;
@@ -941,7 +941,7 @@ impl TaoOperations for CircuitBreakerDecorator {
         self.execute_with_breaker(self.inner.obj_delete_by_type(id, otype)).await
     }
 
-    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>> {
         self.execute_with_breaker(self.inner.assoc_get(query)).await
     }
 
