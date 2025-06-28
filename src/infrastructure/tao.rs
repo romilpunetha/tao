@@ -7,16 +7,15 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use once_cell::sync::OnceCell;
 
 use crate::infrastructure::{
     association_registry::AssociationRegistry,
     query_router::TaoQueryRouter,
-    tao_core::{TaoCore, TaoOperations, TaoId, TaoType, AssocType, TaoAssociation, TaoObject, AssocQuery},
+    tao_core::{TaoCore, TaoOperations, TaoId, TaoType, AssocType, TaoAssociation, TaoObject, TaoAssocQuery},
     tao_decorators::{
         TaoDecorator, BaseTao, WalDecorator, MetricsDecorator, CacheDecorator, CircuitBreakerDecorator
     },
-    database::DatabaseTransaction,
+    database::{DatabaseTransaction, AssocQuery}, // Keep AssocQuery for now, will remove once all Tao uses TaoAssocQuery
     write_ahead_log::TaoWriteAheadLog,
     cache_layer::TaoMultiTierCache,
     monitoring::MetricsCollector,
@@ -120,7 +119,7 @@ impl TaoOperations for Tao {
         self.decorated_tao.obj_delete_by_type(id, otype).await
     }
 
-    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>> {
         self.decorated_tao.assoc_get(query).await
     }
 
@@ -178,75 +177,41 @@ impl TaoOperations for Tao {
     }
 }
 
-/// TAO Singleton Management for global access
-static TAO_INSTANCE: OnceCell<Arc<Tao>> = OnceCell::new();
-
-/// Initialize the global TAO instance with full decoration
-pub async fn initialize_tao(
-    query_router: Arc<TaoQueryRouter>,
-    association_registry: Arc<AssociationRegistry>,
-    wal: Arc<TaoWriteAheadLog>,
-    cache: Arc<TaoMultiTierCache>,
-    metrics: Arc<MetricsCollector>,
-    enable_caching: bool,
-    enable_circuit_breaker: bool,
-) -> AppResult<()> {
-    // Create the core TAO instance
-    let tao_core = Arc::new(TaoCore::new(query_router, association_registry));
-
-    // Wrap with decorators
-    let tao = Tao::new(tao_core, wal, cache, metrics, enable_caching, enable_circuit_breaker);
-
-    TAO_INSTANCE.set(Arc::new(tao)).map_err(|_| {
-        AppError::Internal("TAO instance already initialized".to_string())
-    })?;
-
-    println!("✅ TAO initialized with decorator chain: CircuitBreaker -> Metrics -> WAL -> Cache -> BaseTao -> TaoCore");
-    Ok(())
-}
-
-/// Initialize a minimal TAO instance (for testing or simple use cases)
-pub async fn initialize_tao_minimal(
-    query_router: Arc<TaoQueryRouter>,
-    association_registry: Arc<AssociationRegistry>,
-) -> AppResult<()> {
-    let tao_core = Arc::new(TaoCore::new(query_router, association_registry));
-    let tao = Tao::minimal(tao_core);
-
-    TAO_INSTANCE.set(Arc::new(tao)).map_err(|_| {
-        AppError::Internal("TAO instance already initialized".to_string())
-    })?;
-
-    println!("✅ TAO initialized (minimal mode)");
-    Ok(())
-}
-
-/// Get the global TAO instance (lock-free, thread-safe)
-pub async fn get_tao() -> AppResult<Arc<Tao>> {
-    TAO_INSTANCE
-        .get()
-        .ok_or_else(|| {
-            AppError::Internal(
-                "TAO instance not initialized. Call initialize_tao() first.".to_string(),
-            )
-        })
-        .map(|tao| tao.clone())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::infrastructure::{
-        database::initialize_database_default,
         query_router::QueryRouterConfig,
         cache_layer::initialize_cache_default,
         monitoring::initialize_metrics_default,
+        write_ahead_log::WalConfig,
+        sqlite_database::SqliteDatabase, // Import SqliteDatabase for tests
+        database::DatabaseInterface, // Import DatabaseInterface for tests
+        // database::initialize_database_default, // Removed singleton initialization
     };
+    use sqlx::sqlite::SqlitePoolOptions; // Import for creating SQLite pool
 
     async fn setup_minimal_tao() -> Arc<Tao> {
-        // Initialize a dummy database for testing
-        initialize_database_default().await.unwrap();
+        // Initialize an in-memory SQLite database for testing
+        let sqlite_db = SqliteDatabase::new_in_memory().await.unwrap();
+        sqlite_db.initialize().await.unwrap();
+        let db_interface: Arc<dyn DatabaseInterface> = Arc::new(sqlite_db);
+
+        // Setup a query router with the in-memory database
         let query_router = Arc::new(TaoQueryRouter::new(QueryRouterConfig::default()).await);
+        query_router.add_shard(
+            crate::infrastructure::shard_topology::ShardInfo {
+                shard_id: 0,
+                connection_string: "sqlite_in_memory".to_string(),
+                region: "test-region".to_string(),
+                health: crate::infrastructure::shard_topology::ShardHealth::Healthy,
+                replicas: vec![],
+                last_health_check: crate::infrastructure::tao_core::current_time_millis(),
+                load_factor: 0.0,
+            },
+            db_interface,
+        ).await.unwrap();
+
         let association_registry = Arc::new(AssociationRegistry::new());
         let tao_core = Arc::new(TaoCore::new(query_router, association_registry));
         Arc::new(Tao::minimal(tao_core))
@@ -266,8 +231,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_decorated_tao_initialization() {
-        initialize_database_default().await.unwrap();
+        // Initialize an in-memory SQLite database for testing
+        let sqlite_db = SqliteDatabase::new_in_memory().await.unwrap();
+        sqlite_db.initialize().await.unwrap();
+        let db_interface: Arc<dyn DatabaseInterface> = Arc::new(sqlite_db);
+
         let query_router = Arc::new(TaoQueryRouter::new(QueryRouterConfig::default()).await);
+        query_router.add_shard(
+            crate::infrastructure::shard_topology::ShardInfo {
+                shard_id: 0,
+                connection_string: "sqlite_in_memory".to_string(),
+                region: "test-region".to_string(),
+                health: crate::infrastructure::shard_topology::ShardHealth::Healthy,
+                replicas: vec![],
+                last_health_check: crate::infrastructure::tao_core::current_time_millis(),
+                load_factor: 0.0,
+            },
+            db_interface,
+        ).await.unwrap();
+
         let association_registry = Arc::new(AssociationRegistry::new());
         let tao_core = Arc::new(TaoCore::new(query_router, association_registry));
 
@@ -295,7 +277,7 @@ mod tests {
         let assoc = create_tao_association(user1_id, "friend".to_string(), user2_id, None);
         tao.assoc_add(assoc.clone()).await.unwrap();
 
-        let fetched_assocs = tao.assoc_get(AssocQuery {
+        let fetched_assocs = tao.assoc_get(TaoAssocQuery { // Changed from AssocQuery
             id1: user1_id,
             atype: "friend".to_string(),
             id2_set: None,
