@@ -19,17 +19,16 @@ pub mod tao_decorators; // TAO decorator pattern implementations
 // Re-export core infrastructure components
 pub use cache::*;
 pub use database::{
-    database_health_check, database_pool_stats, get_database, initialize_database,
-    initialize_database_default, DatabaseInterface, PostgresDatabase,
-    TaoAssocQueryResult, TaoObjectQueryResult, DatabaseTransaction
+    DatabaseInterface, PostgresDatabase,
+    AssocQueryResult, ObjectQueryResult, DatabaseTransaction
 };
 pub use id_generator::TaoIdGenerator;
 pub use viewer::ViewerContext;
 pub use sqlite_database::SqliteDatabase; // Also adding SqliteDatabase to mod.rs
 // Core TAO types and interfaces (developers can use these types)
 pub use tao_core::{
-    create_tao_association, current_time_millis, AssocQuery,
-    AssocType, ObjectQuery, TaoAssociation, TaoId, TaoObject, TaoOperations, TaoTime, TaoType,
+    create_tao_association, current_time_millis, TaoAssocQuery,
+    AssocType, TaoObjectQuery, TaoAssociation, TaoId, TaoObject, TaoOperations, TaoTime, TaoType,
 };
 
 pub use association_registry::AssociationRegistry;
@@ -39,7 +38,6 @@ pub use cache_layer::{CacheConfig, CacheEntry, TaoMultiTierCache, initialize_cac
 pub use monitoring::{
     initialize_monitoring, initialize_metrics_default, MetricsCollector,
 };
-pub use tao::{get_tao, initialize_tao};
 
 // Re-export new traits
 pub use traits::{

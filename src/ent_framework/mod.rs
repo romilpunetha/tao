@@ -13,5 +13,5 @@ pub use ent_trait::Entity;
 pub use crate::infrastructure::{
     // Core TAO types and operations
     TaoOperations, TaoId, TaoTime, TaoType, AssocType, TaoAssociation, TaoObject, 
-    AssocQuery, ObjectQuery, create_tao_association, current_time_millis
+    TaoAssocQuery, TaoObjectQuery, create_tao_association, current_time_millis
 };

@@ -46,7 +46,11 @@ impl CodeGenerator {
         self.create_domain_directories(&schemas)?;
         println!("✅ Created domain directories");
 
-        // Step 4: Generate Thrift definitions (for thrift compiler)
+        // Step 5: Generate domain modules with entity.rs enabled (EARLY)
+        self.generate_domain_modules_with_entities(&schemas)?;
+        println!("✅ Generated domain modules with entities enabled (early)");
+
+        // Step 6: Generate Thrift definitions (for thrift compiler)
         let thrift_gen = thrift_generator::ThriftGenerator::new(&self.registry);
         for (entity_type, (fields, _edges)) in &schemas {
             thrift_gen.generate_thrift_file(entity_type, fields)?;
@@ -57,6 +61,13 @@ impl CodeGenerator {
         self.compile_thrift_files(&schemas)?;
         println!("✅ Compiled Thrift files to Rust entities");
 
+        // Step 6: Generate Rust-specific extensions (like new_default) for thrift-generated entities
+        let rust_gen = rust_generator::RustGenerator::new(&self.registry);
+        for (entity_type, (fields, _edges)) in &schemas {
+            rust_gen.generate_entity_struct(entity_type, fields)?;
+        }
+        println!("✅ Generated Rust entity extensions");
+
         // Step 6: Generate builders with save() function
         let builder_gen = builder_generator::BuilderGenerator::new(&self.registry);
         for (entity_type, (fields, _edges)) in &schemas {
@@ -64,16 +75,12 @@ impl CodeGenerator {
         }
         println!("✅ Generated builders with save() function");
 
-        // Step 7: Generate Ent trait implementations
+        // Step 9: Generate Ent trait implementations
         let ent_gen = ent_generator::EntGenerator::new(&self.registry);
         for (entity_type, (fields, edges)) in &schemas {
             ent_gen.generate_ent_impl(entity_type, fields, edges)?;
         }
         println!("✅ Generated Ent implementations");
-
-        // Step 8: Generate domain modules with entity.rs enabled
-        self.generate_domain_modules_with_entities(&schemas)?;
-        println!("✅ Generated domain modules with entities enabled");
 
         println!("🎉 Modular codegen pipeline completed successfully!");
 
@@ -272,4 +279,4 @@ impl CodeGenerator {
         }
         Ok(())
     }
-} 
+}

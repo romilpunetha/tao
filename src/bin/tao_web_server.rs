@@ -22,14 +22,15 @@ use tao_database::{
         database::{DatabaseInterface, PostgresDatabase},
         query_router::{QueryRouterConfig, TaoQueryRouter},
         shard_topology::{ShardHealth, ShardInfo},
-        tao_core::{TaoCore, TaoId, TaoOperations, create_tao_association, current_time_millis},
-        tao::{Tao, get_tao, initialize_tao},
-        wal_storage::WalStorage,
+        tao_core::{TaoId, TaoOperations, create_tao_association, current_time_millis},
+        tao::Tao,
         write_ahead_log::{WalConfig, TaoWriteAheadLog},
         initialize_cache_default,
         initialize_metrics_default,
     },
 };
+use tao_database::domains::user::{builder::EntUserBuilder, entity::EntUser}; // Separate import
+use sqlx::postgres::PgPoolOptions;
 
 // use tao_database::data_seeder;
 
@@ -247,7 +248,7 @@ async fn get_all_users(
     Query(params): Query<GraphQueryParams>,
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(100);
-    
+
     match state.tao.get_all_objects_of_type("user".to_string(), Some(limit)).await {
         Ok(user_objs) => {
             let mut users = Vec::new();
@@ -261,7 +262,7 @@ async fn get_all_users(
                     });
                 }
             }
-            
+
             let response = ApiResponse {
                 success: true,
                 data: Some(users),
@@ -425,37 +426,36 @@ async fn seed_data_handler(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     info!("Seeding sample data...");
-    
-    // Create sample users
-    let sample_users = vec![
-        ("Alice Johnson", "alice@example.com", "Software engineer who loves hiking and photography"),
-        ("Bob Smith", "bob@example.com", "Product manager with a passion for cycling"),
-        ("Charlie Brown", "charlie@example.com", "Designer focused on user experience"),
-        ("Diana Prince", "diana@example.com", "Data scientist exploring machine learning"),
-        ("Eve Wilson", "eve@example.com", "Marketing specialist who enjoys cooking"),
-        ("Frank Castle", "frank@example.com", "DevOps engineer with security expertise"),
-        ("Grace Hopper", "grace@example.com", "Full-stack developer and open source contributor"),
-        ("Henry Ford", "henry@example.com", "Engineering manager leading innovative projects"),
+
+    // Create sample users using EntUserBuilder
+    let sample_users_data = vec![
+        ("Grace Hopper", "grace@example.com", Some("Full-stack developer and open source contributor"), true),
+        ("Alice Johnson", "alice@example.com", Some("Software engineer who loves hiking and photography"), true),
+        ("Bob Smith", "bob@example.com", Some("Product manager with a passion for cycling"), true),
+        ("Charlie Brown", "charlie@example.com", Some("Designer focused on user experience"), false),
+        ("Diana Prince", "diana@example.com", Some("Data scientist exploring machine learning"), true),
+        ("Eve Wilson", "eve@example.com", Some("Marketing specialist who enjoys cooking"), false),
+        ("Frank Castle", "frank@example.com", Some("DevOps engineer with security expertise"), true),
+        ("Henry Ford", "henry@example.com", Some("Engineering manager leading innovative projects"), false),
     ];
-    
-    let mut user_ids = Vec::new();
-    
-    // Create users
-    for (name, email, bio) in sample_users {
-        let user_data = serde_json::json!({
-            "name": name,
-            "email": email,
-            "bio": bio,
-            "created_at": current_time_millis()
-        });
-        
-        match state.tao.obj_add("user".to_string(), user_data.to_string().into_bytes()).await {
-            Ok(user_id) => {
-                user_ids.push(user_id);
-                info!("Created user: {} (ID: {})", name, user_id);
+
+    let mut users: Vec<EntUser> = Vec::new();
+
+    for (name, email, bio, is_verified) in sample_users_data {
+        let user_builder = EntUser::create()
+            .username(name.to_lowercase().replace(" ", "_"))
+            .email(email.to_string())
+            .full_name(name.to_string())
+            .bio(bio.unwrap_or("").to_string())
+            .is_verified(is_verified);
+
+        match user_builder.save(&state.tao).await {
+            Ok(user) => {
+                info!("Created EntUser: {} (ID: {})", user.username, user.id);
+                users.push(user);
             }
             Err(e) => {
-                warn!("Failed to create user {}: {}", name, e);
+                warn!("Failed to create EntUser {}: {}", name, e);
                 let response = ApiResponse::<String> {
                     success: false,
                     data: None,
@@ -465,12 +465,12 @@ async fn seed_data_handler(
             }
         }
     }
-    
-    // Create sample relationships
-    if user_ids.len() >= 2 {
+
+    // Create sample relationships using Ent-specific methods
+    if users.len() >= 2 {
         let relationships = vec![
             (0, 1, "friendship"),
-            (0, 2, "follows"), 
+            (0, 2, "follows"),
             (1, 2, "friendship"),
             (2, 3, "follows"),
             (3, 4, "friendship"),
@@ -482,36 +482,33 @@ async fn seed_data_handler(
             (5, 7, "friendship"),
             (2, 6, "follows"),
         ];
-        
+
         for (from_idx, to_idx, rel_type) in relationships {
-            if from_idx < user_ids.len() && to_idx < user_ids.len() {
-                let from_id = user_ids[from_idx];
-                let to_id = user_ids[to_idx];
-                
-                match create_tao_association(
-                    &state.tao,
-                    from_id,
-                    to_id,
-                    rel_type.to_string(),
-                    serde_json::json!({
-                        "created_at": current_time_millis(),
-                        "status": "active"
-                    }).to_string().into_bytes()
-                ).await {
+            if from_idx < users.len() && to_idx < users.len() {
+                let from_user = &users[from_idx];
+                let to_user_id = users[to_idx].id;
+
+                let result = match rel_type {
+                    "friendship" => from_user.add_friend(&state.tao, to_user_id).await,
+                    "follows" => from_user.add_following(&state.tao, to_user_id).await,
+                    _ => Ok(()), // Should not happen with defined types
+                };
+
+                match result {
                     Ok(_) => {
-                        info!("Created {} relationship between {} and {}", rel_type, from_id, to_id);
+                        info!("Created {} relationship between {} and {}", rel_type, from_user.id, to_user_id);
                     }
                     Err(e) => {
-                        warn!("Failed to create relationship between {} and {}: {}", from_id, to_id, e);
+                        warn!("Failed to create {} relationship between {} and {}: {}", rel_type, from_user.id, to_user_id, e);
                     }
                 }
             }
         }
     }
-    
+
     let response = ApiResponse {
         success: true,
-        data: Some(format!("Successfully seeded {} users with relationships", user_ids.len())),
+        data: Some(format!("Successfully seeded {} users with relationships", users.len())),
         error: None,
     };
     (StatusCode::OK, Json(response))
@@ -534,20 +531,13 @@ async fn main() -> AppResult<()> {
 
     for (i, url) in shard_urls.iter().enumerate() {
         info!("Initializing shard {} at {}", i + 1, url);
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(20)
-            .min_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(8))
-            .idle_timeout(std::time::Duration::from_secs(600))
-            .max_lifetime(std::time::Duration::from_secs(1800))
-            .test_before_acquire(true)
+        let pool = PgPoolOptions::new()
+            .max_connections(10) // Example value, adjust as needed
             .connect(url)
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to connect to database: {}", e)))?;
-
+            .map_err(|e| AppError::DatabaseError(format!("Failed to connect to database for shard {}: {}", i + 1, e)))?;
         let database = PostgresDatabase::new(pool);
         database.initialize().await?; // Initialize tables for this specific shard
-
         let db_interface: Arc<dyn DatabaseInterface> = Arc::new(database);
 
         let shard_info = ShardInfo {
@@ -575,9 +565,11 @@ async fn main() -> AppResult<()> {
     let cache = initialize_cache_default().await?;
     let metrics = initialize_metrics_default().await?;
 
+    // Create TaoCore instance
+    let tao_core = Arc::new(tao_database::infrastructure::tao_core::TaoCore::new(query_router.clone(), association_registry.clone()));
+
     // Initialize TAO with all components
-    initialize_tao(query_router, association_registry, wal, cache, metrics, false, false).await?;
-    let tao = get_tao().await?;
+    let tao = Arc::new(Tao::new(tao_core, wal, cache, metrics, false, false));
     info!("✅ TAO initialized with production features");
 
     // Application state

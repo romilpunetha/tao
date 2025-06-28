@@ -15,12 +15,12 @@ pub mod infrastructure;
 // Schema Definitions - Entity schemas defined by developers
 pub mod schemas;
 
-// Domain-Driven Organization - Entities organized by domain
 pub mod domains;
+
 
 // Common utilities
 pub mod error;
 pub mod data_seeder;
 
-// Re-exports for convenience  
+// Re-exports for convenience
 pub use error::{AppError, AppResult};
