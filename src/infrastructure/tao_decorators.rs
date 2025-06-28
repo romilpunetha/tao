@@ -10,11 +10,14 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::{
-    tao_core::{TaoOperations, TaoId, TaoType, AssocType, TaoAssociation, TaoObject, AssocQuery, TaoAssocQuery},
-    database::DatabaseTransaction,
-    write_ahead_log::{TaoOperation, TaoWriteAheadLog},
     cache_layer::TaoMultiTierCache,
+    database::DatabaseTransaction,
     monitoring::MetricsCollector,
+    tao_core::{
+        AssocType, TaoAssocQuery, TaoAssociation, TaoId, TaoObject, TaoOperations,
+        TaoType,
+    },
+    write_ahead_log::{TaoOperation, TaoWriteAheadLog},
 };
 
 /// Base TAO decorator trait - all decorators implement this
@@ -42,7 +45,12 @@ impl TaoOperations for BaseTao {
         self.core.obj_get(id).await
     }
 
-    async fn obj_add(&self, otype: TaoType, data: Vec<u8>, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+    async fn obj_add(
+        &self,
+        otype: TaoType,
+        data: Vec<u8>,
+        owner_id: Option<TaoId>,
+    ) -> AppResult<TaoId> {
         self.core.obj_add(otype, data, owner_id).await
     }
 
@@ -62,7 +70,12 @@ impl TaoOperations for BaseTao {
         self.core.obj_exists_by_type(id, otype).await
     }
 
-    async fn obj_update_by_type(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<bool> {
+    async fn obj_update_by_type(
+        &self,
+        id: TaoId,
+        otype: TaoType,
+        data: Vec<u8>,
+    ) -> AppResult<bool> {
         self.core.obj_update_by_type(id, otype, data).await
     }
 
@@ -86,27 +99,56 @@ impl TaoOperations for BaseTao {
         self.core.assoc_count(id1, atype).await
     }
 
-    async fn assoc_range(&self, id1: TaoId, atype: AssocType, offset: u64, limit: u32) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        offset: u64,
+        limit: u32,
+    ) -> AppResult<Vec<TaoAssociation>> {
         self.core.assoc_range(id1, atype, offset, limit).await
     }
 
-    async fn assoc_time_range(&self, id1: TaoId, atype: AssocType, high_time: i64, low_time: i64, limit: Option<u32>) -> AppResult<Vec<TaoAssociation>> {
-        self.core.assoc_time_range(id1, atype, high_time, low_time, limit).await
+    async fn assoc_time_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        high_time: i64,
+        low_time: i64,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoAssociation>> {
+        self.core
+            .assoc_time_range(id1, atype, high_time, low_time, limit)
+            .await
     }
 
     async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
         self.core.assoc_exists(id1, atype, id2).await
     }
 
-    async fn get_by_id_and_type(&self, ids: Vec<TaoId>, otype: TaoType) -> AppResult<Vec<TaoObject>> {
+    async fn get_by_id_and_type(
+        &self,
+        ids: Vec<TaoId>,
+        otype: TaoType,
+    ) -> AppResult<Vec<TaoObject>> {
         self.core.get_by_id_and_type(ids, otype).await
     }
 
-    async fn get_neighbors(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_neighbors(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         self.core.get_neighbors(id, atype, limit).await
     }
 
-    async fn get_neighbor_ids(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>> {
+    async fn get_neighbor_ids(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoId>> {
         self.core.get_neighbor_ids(id, atype, limit).await
     }
 
@@ -118,8 +160,11 @@ impl TaoOperations for BaseTao {
         self.core.execute_query(query).await
     }
 
-
-    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_all_objects_of_type(
+        &self,
+        otype: TaoType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         self.core.get_all_objects_of_type(otype, limit).await
     }
 
@@ -133,7 +178,6 @@ impl TaoDecorator for BaseTao {
     fn decorator_name(&self) -> &'static str {
         "BaseTao"
     }
-
 }
 
 /// WAL Decorator - Adds Write-Ahead Log functionality for durability and retry
@@ -150,7 +194,10 @@ impl WalDecorator {
 
     /// Execute operations with WAL logging and retry on failure
     #[instrument(skip(self, operations))]
-    pub async fn execute_transaction_with_wal(&self, operations: Vec<TaoOperation>) -> AppResult<Uuid> {
+    pub async fn execute_transaction_with_wal(
+        &self,
+        operations: Vec<TaoOperation>,
+    ) -> AppResult<Uuid> {
         // 1. Log operations to WAL first for durability
         let txn_id = self.wal.log_operations(operations.clone()).await?;
         info!("Transaction {} logged to WAL", txn_id);
@@ -161,21 +208,25 @@ impl WalDecorator {
 
         for operation in operations {
             let result = match operation {
-                TaoOperation::InsertObject { object_id, object_type, data } => {
-                    self.inner.obj_add(object_type, data, Some(object_id)).await.map(|_| ())
-                },
-                TaoOperation::InsertAssociation { assoc } => {
-                    self.inner.assoc_add(assoc).await
-                },
+                TaoOperation::InsertObject {
+                    object_id,
+                    object_type,
+                    data,
+                } => self
+                    .inner
+                    .obj_add(object_type, data, Some(object_id))
+                    .await
+                    .map(|_| ()),
+                TaoOperation::InsertAssociation { assoc } => self.inner.assoc_add(assoc).await,
                 TaoOperation::DeleteAssociation { id1, atype, id2 } => {
                     self.inner.assoc_delete(id1, atype, id2).await.map(|_| ())
-                },
+                }
                 TaoOperation::UpdateObject { object_id, data } => {
                     self.inner.obj_update(object_id, data).await
-                },
+                }
                 TaoOperation::DeleteObject { object_id } => {
                     self.inner.obj_delete(object_id).await.map(|_| ())
-                },
+                }
             };
 
             if let Err(e) = result {
@@ -192,7 +243,9 @@ impl WalDecorator {
             Ok(txn_id)
         } else {
             // Mark as failed, enabling retry mechanisms
-            self.wal.mark_transaction_failed(txn_id, error_msg.clone()).await?;
+            self.wal
+                .mark_transaction_failed(txn_id, error_msg.clone())
+                .await?;
             error!("Transaction {} failed: {}", txn_id, error_msg);
             Err(AppError::Internal(error_msg))
         }
@@ -206,7 +259,10 @@ impl WalDecorator {
             return Ok(());
         }
 
-        info!("Processing {} pending transactions from WAL", retry_txns.len());
+        info!(
+            "Processing {} pending transactions from WAL",
+            retry_txns.len()
+        );
 
         for txn_id in retry_txns {
             if let Ok(operations) = self.wal.get_transaction_operations(txn_id).await {
@@ -223,21 +279,27 @@ impl WalDecorator {
 
                 for operation in operations {
                     let result = match operation {
-                        TaoOperation::InsertObject { object_id, object_type, data } => {
-                            self.inner.obj_add(object_type, data, Some(object_id)).await.map(|_| ())
-                        },
+                        TaoOperation::InsertObject {
+                            object_id,
+                            object_type,
+                            data,
+                        } => self
+                            .inner
+                            .obj_add(object_type, data, Some(object_id))
+                            .await
+                            .map(|_| ()),
                         TaoOperation::InsertAssociation { assoc } => {
                             self.inner.assoc_add(assoc).await
-                        },
+                        }
                         TaoOperation::DeleteAssociation { id1, atype, id2 } => {
                             self.inner.assoc_delete(id1, atype, id2).await.map(|_| ())
-                        },
+                        }
                         TaoOperation::UpdateObject { object_id, data } => {
                             self.inner.obj_update(object_id, data).await
-                        },
+                        }
                         TaoOperation::DeleteObject { object_id } => {
                             self.inner.obj_delete(object_id).await.map(|_| ())
-                        },
+                        }
                     };
 
                     if let Err(e) = result {
@@ -251,7 +313,9 @@ impl WalDecorator {
                     self.wal.mark_transaction_committed(txn_id).await?;
                     info!("Retry of transaction {} succeeded", txn_id);
                 } else {
-                    self.wal.mark_transaction_failed(txn_id, error_msg.clone()).await?;
+                    self.wal
+                        .mark_transaction_failed(txn_id, error_msg.clone())
+                        .await?;
                     error!("Retry of transaction {} failed: {}", txn_id, error_msg);
                 }
             }
@@ -266,12 +330,20 @@ impl TaoOperations for WalDecorator {
     // Write operations are enhanced with WAL logging for replay capability
 
     #[instrument(skip(self, data), fields(object_type = %otype))]
-    async fn obj_add(&self, otype: TaoType, data: Vec<u8>, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+    async fn obj_add(
+        &self,
+        otype: TaoType,
+        data: Vec<u8>,
+        owner_id: Option<TaoId>,
+    ) -> AppResult<TaoId> {
         // First, determine the shard for this operation
         let owner_id = owner_id.unwrap_or(0);
 
         // Execute the operation first to get the actual object ID
-        let object_id = self.inner.obj_add(otype.clone(), data.clone(), Some(owner_id)).await?;
+        let object_id = self
+            .inner
+            .obj_add(otype.clone(), data.clone(), Some(owner_id))
+            .await?;
 
         // Now log to WAL for replay capability
         let operation = TaoOperation::InsertObject {
@@ -284,7 +356,10 @@ impl TaoOperations for WalDecorator {
         // Mark as committed since operation already succeeded
         self.wal.mark_transaction_committed(txn_id).await?;
 
-        debug!("Logged obj_add operation {} to WAL as transaction {}", object_id, txn_id);
+        debug!(
+            "Logged obj_add operation {} to WAL as transaction {}",
+            object_id, txn_id
+        );
         Ok(object_id)
     }
 
@@ -303,7 +378,10 @@ impl TaoOperations for WalDecorator {
         // Mark as committed since operation already succeeded
         self.wal.mark_transaction_committed(txn_id).await?;
 
-        debug!("Logged obj_update operation {} to WAL as transaction {}", id, txn_id);
+        debug!(
+            "Logged obj_update operation {} to WAL as transaction {}",
+            id, txn_id
+        );
         Ok(())
     }
 
@@ -314,15 +392,16 @@ impl TaoOperations for WalDecorator {
 
         if result {
             // Log to WAL for replay capability only if deletion succeeded
-            let operation = TaoOperation::DeleteObject {
-                object_id: id,
-            };
+            let operation = TaoOperation::DeleteObject { object_id: id };
 
             let txn_id = self.wal.log_operations(vec![operation]).await?;
             // Mark as committed since operation already succeeded
             self.wal.mark_transaction_committed(txn_id).await?;
 
-            debug!("Logged obj_delete operation {} to WAL as transaction {}", id, txn_id);
+            debug!(
+                "Logged obj_delete operation {} to WAL as transaction {}",
+                id, txn_id
+            );
         }
 
         Ok(result)
@@ -334,15 +413,16 @@ impl TaoOperations for WalDecorator {
         self.inner.assoc_add(assoc.clone()).await?;
 
         // Log to WAL for replay capability
-        let operation = TaoOperation::InsertAssociation {
-            assoc,
-        };
+        let operation = TaoOperation::InsertAssociation { assoc };
 
         let txn_id = self.wal.log_operations(vec![operation]).await?;
         // Mark as committed since operation already succeeded
         self.wal.mark_transaction_committed(txn_id).await?;
 
-        debug!("Logged assoc_add operation to WAL as transaction {}", txn_id);
+        debug!(
+            "Logged assoc_add operation to WAL as transaction {}",
+            txn_id
+        );
         Ok(())
     }
 
@@ -353,29 +433,34 @@ impl TaoOperations for WalDecorator {
 
         if result {
             // Log to WAL for replay capability only if deletion succeeded
-            let operation = TaoOperation::DeleteAssociation {
-                id1,
-                atype,
-                id2,
-            };
+            let operation = TaoOperation::DeleteAssociation { id1, atype, id2 };
 
             let txn_id = self.wal.log_operations(vec![operation]).await?;
             // Mark as committed since operation already succeeded
             self.wal.mark_transaction_committed(txn_id).await?;
 
-            debug!("Logged assoc_delete operation to WAL as transaction {}", txn_id);
+            debug!(
+                "Logged assoc_delete operation to WAL as transaction {}",
+                txn_id
+            );
         }
 
         Ok(result)
     }
 
-
-
     // Additional write operations with WAL logging
 
-    async fn obj_update_by_type(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<bool> {
+    async fn obj_update_by_type(
+        &self,
+        id: TaoId,
+        otype: TaoType,
+        data: Vec<u8>,
+    ) -> AppResult<bool> {
         // Execute the operation first
-        let result = self.inner.obj_update_by_type(id, otype.clone(), data.clone()).await?;
+        let result = self
+            .inner
+            .obj_update_by_type(id, otype.clone(), data.clone())
+            .await?;
 
         if result {
             // Log to WAL for replay capability only if update succeeded
@@ -388,7 +473,10 @@ impl TaoOperations for WalDecorator {
             // Mark as committed since operation already succeeded
             self.wal.mark_transaction_committed(txn_id).await?;
 
-            debug!("Logged obj_update_by_type operation {} to WAL as transaction {}", id, txn_id);
+            debug!(
+                "Logged obj_update_by_type operation {} to WAL as transaction {}",
+                id, txn_id
+            );
         }
 
         Ok(result)
@@ -400,15 +488,16 @@ impl TaoOperations for WalDecorator {
 
         if result {
             // Log to WAL for replay capability only if deletion succeeded
-            let operation = TaoOperation::DeleteObject {
-                object_id: id,
-            };
+            let operation = TaoOperation::DeleteObject { object_id: id };
 
             let txn_id = self.wal.log_operations(vec![operation]).await?;
             // Mark as committed since operation already succeeded
             self.wal.mark_transaction_committed(txn_id).await?;
 
-            debug!("Logged obj_delete_by_type operation {} to WAL as transaction {}", id, txn_id);
+            debug!(
+                "Logged obj_delete_by_type operation {} to WAL as transaction {}",
+                id, txn_id
+            );
         }
 
         Ok(result)
@@ -427,8 +516,7 @@ impl TaoOperations for WalDecorator {
         self.inner.obj_exists_by_type(id, otype).await
     }
 
-
-    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>> {
         self.inner.assoc_get(query).await
     }
 
@@ -436,31 +524,60 @@ impl TaoOperations for WalDecorator {
         self.inner.assoc_count(id1, atype).await
     }
 
-    async fn assoc_range(&self, id1: TaoId, atype: AssocType, offset: u64, limit: u32) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        offset: u64,
+        limit: u32,
+    ) -> AppResult<Vec<TaoAssociation>> {
         self.inner.assoc_range(id1, atype, offset, limit).await
     }
 
-    async fn assoc_time_range(&self, id1: TaoId, atype: AssocType, high_time: i64, low_time: i64, limit: Option<u32>) -> AppResult<Vec<TaoAssociation>> {
-        self.inner.assoc_time_range(id1, atype, high_time, low_time, limit).await
+    async fn assoc_time_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        high_time: i64,
+        low_time: i64,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoAssociation>> {
+        self.inner
+            .assoc_time_range(id1, atype, high_time, low_time, limit)
+            .await
     }
 
     async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
         self.inner.assoc_exists(id1, atype, id2).await
     }
 
-    async fn get_by_id_and_type(&self, ids: Vec<TaoId>, otype: TaoType) -> AppResult<Vec<TaoObject>> {
+    async fn get_by_id_and_type(
+        &self,
+        ids: Vec<TaoId>,
+        otype: TaoType,
+    ) -> AppResult<Vec<TaoObject>> {
         self.inner.get_by_id_and_type(ids, otype).await
     }
 
-    async fn get_neighbors(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_neighbors(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         self.inner.get_neighbors(id, atype, limit).await
     }
 
-    async fn get_neighbor_ids(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>> {
+    async fn get_neighbor_ids(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoId>> {
         self.inner.get_neighbor_ids(id, atype, limit).await
     }
 
-    async fn begin_transaction(&self) ->  AppResult<DatabaseTransaction> {
+    async fn begin_transaction(&self) -> AppResult<DatabaseTransaction> {
         self.inner.begin_transaction().await
     }
 
@@ -468,7 +585,11 @@ impl TaoOperations for WalDecorator {
         self.inner.execute_query(query).await
     }
 
-    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_all_objects_of_type(
+        &self,
+        otype: TaoType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         self.inner.get_all_objects_of_type(otype, limit).await
     }
 
@@ -482,7 +603,6 @@ impl TaoDecorator for WalDecorator {
     fn decorator_name(&self) -> &'static str {
         "WalDecorator"
     }
-
 }
 
 /// Metrics Decorator - Adds comprehensive monitoring and metrics collection
@@ -498,7 +618,9 @@ impl MetricsDecorator {
     }
 
     async fn record_operation(&self, operation: &str, start_time: Instant, success: bool) {
-        self.metrics.record_request(operation, start_time.elapsed(), success).await;
+        self.metrics
+            .record_request(operation, start_time.elapsed(), success)
+            .await;
     }
 
     async fn record_business_event(&self, event: &str) {
@@ -512,15 +634,22 @@ impl TaoOperations for MetricsDecorator {
     async fn obj_get(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
         let start = Instant::now();
         let result = self.inner.obj_get(id).await;
-        self.record_operation("obj_get", start, result.is_ok()).await;
+        self.record_operation("obj_get", start, result.is_ok())
+            .await;
         result
     }
 
     #[instrument(skip(self, data), fields(object_type = %otype))]
-    async fn obj_add(&self, otype: TaoType, data: Vec<u8>, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+    async fn obj_add(
+        &self,
+        otype: TaoType,
+        data: Vec<u8>,
+        owner_id: Option<TaoId>,
+    ) -> AppResult<TaoId> {
         let start = Instant::now();
         let result = self.inner.obj_add(otype, data, owner_id).await;
-        self.record_operation("obj_add", start, result.is_ok()).await;
+        self.record_operation("obj_add", start, result.is_ok())
+            .await;
         if result.is_ok() {
             self.record_business_event("obj_add").await;
         }
@@ -531,7 +660,8 @@ impl TaoOperations for MetricsDecorator {
     async fn obj_update(&self, id: TaoId, data: Vec<u8>) -> AppResult<()> {
         let start = Instant::now();
         let result = self.inner.obj_update(id, data).await;
-        self.record_operation("obj_update", start, result.is_ok()).await;
+        self.record_operation("obj_update", start, result.is_ok())
+            .await;
         result
     }
 
@@ -539,35 +669,45 @@ impl TaoOperations for MetricsDecorator {
     async fn obj_delete(&self, id: TaoId) -> AppResult<bool> {
         let start = Instant::now();
         let result = self.inner.obj_delete(id).await;
-        self.record_operation("obj_delete", start, result.is_ok()).await;
+        self.record_operation("obj_delete", start, result.is_ok())
+            .await;
         result
     }
 
     async fn obj_exists(&self, id: TaoId) -> AppResult<bool> {
         let start = Instant::now();
         let result = self.inner.obj_exists(id).await;
-        self.record_operation("obj_exists", start, result.is_ok()).await;
+        self.record_operation("obj_exists", start, result.is_ok())
+            .await;
         result
     }
 
     async fn obj_exists_by_type(&self, id: TaoId, otype: TaoType) -> AppResult<bool> {
         let start = Instant::now();
         let result = self.inner.obj_exists_by_type(id, otype).await;
-        self.record_operation("obj_exists_by_type", start, result.is_ok()).await;
+        self.record_operation("obj_exists_by_type", start, result.is_ok())
+            .await;
         result
     }
 
-    async fn obj_update_by_type(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<bool> {
+    async fn obj_update_by_type(
+        &self,
+        id: TaoId,
+        otype: TaoType,
+        data: Vec<u8>,
+    ) -> AppResult<bool> {
         let start = Instant::now();
         let result = self.inner.obj_update_by_type(id, otype, data).await;
-        self.record_operation("obj_update_by_type", start, result.is_ok()).await;
+        self.record_operation("obj_update_by_type", start, result.is_ok())
+            .await;
         result
     }
 
     async fn obj_delete_by_type(&self, id: TaoId, otype: TaoType) -> AppResult<bool> {
         let start = Instant::now();
         let result = self.inner.obj_delete_by_type(id, otype).await;
-        self.record_operation("obj_delete_by_type", start, result.is_ok()).await;
+        self.record_operation("obj_delete_by_type", start, result.is_ok())
+            .await;
         result
     }
 
@@ -575,7 +715,8 @@ impl TaoOperations for MetricsDecorator {
     async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>> {
         let start = Instant::now();
         let result = self.inner.assoc_get(query).await;
-        self.record_operation("assoc_get", start, result.is_ok()).await;
+        self.record_operation("assoc_get", start, result.is_ok())
+            .await;
         result
     }
 
@@ -583,7 +724,8 @@ impl TaoOperations for MetricsDecorator {
     async fn assoc_add(&self, assoc: TaoAssociation) -> AppResult<()> {
         let start = Instant::now();
         let result = self.inner.assoc_add(assoc).await;
-        self.record_operation("assoc_add", start, result.is_ok()).await;
+        self.record_operation("assoc_add", start, result.is_ok())
+            .await;
         if result.is_ok() {
             self.record_business_event("assoc_add").await;
         }
@@ -594,85 +736,130 @@ impl TaoOperations for MetricsDecorator {
     async fn assoc_delete(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
         let start = Instant::now();
         let result = self.inner.assoc_delete(id1, atype, id2).await;
-        self.record_operation("assoc_delete", start, result.is_ok()).await;
+        self.record_operation("assoc_delete", start, result.is_ok())
+            .await;
         result
     }
 
     async fn assoc_count(&self, id1: TaoId, atype: AssocType) -> AppResult<u64> {
         let start = Instant::now();
         let result = self.inner.assoc_count(id1, atype).await;
-        self.record_operation("assoc_count", start, result.is_ok()).await;
+        self.record_operation("assoc_count", start, result.is_ok())
+            .await;
         result
     }
 
-    async fn assoc_range(&self, id1: TaoId, atype: AssocType, offset: u64, limit: u32) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        offset: u64,
+        limit: u32,
+    ) -> AppResult<Vec<TaoAssociation>> {
         let start = Instant::now();
         let result = self.inner.assoc_range(id1, atype, offset, limit).await;
-        self.record_operation("assoc_range", start, result.is_ok()).await;
+        self.record_operation("assoc_range", start, result.is_ok())
+            .await;
         result
     }
 
-    async fn assoc_time_range(&self, id1: TaoId, atype: AssocType, high_time: i64, low_time: i64, limit: Option<u32>) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_time_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        high_time: i64,
+        low_time: i64,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoAssociation>> {
         let start = Instant::now();
-        let result = self.inner.assoc_time_range(id1, atype, high_time, low_time, limit).await;
-        self.record_operation("assoc_time_range", start, result.is_ok()).await;
+        let result = self
+            .inner
+            .assoc_time_range(id1, atype, high_time, low_time, limit)
+            .await;
+        self.record_operation("assoc_time_range", start, result.is_ok())
+            .await;
         result
     }
 
     async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
         let start = Instant::now();
         let result = self.inner.assoc_exists(id1, atype, id2).await;
-        self.record_operation("assoc_exists", start, result.is_ok()).await;
+        self.record_operation("assoc_exists", start, result.is_ok())
+            .await;
         result
     }
 
-    async fn get_by_id_and_type(&self, ids: Vec<TaoId>, otype: TaoType) -> AppResult<Vec<TaoObject>> {
+    async fn get_by_id_and_type(
+        &self,
+        ids: Vec<TaoId>,
+        otype: TaoType,
+    ) -> AppResult<Vec<TaoObject>> {
         let start = Instant::now();
         let result = self.inner.get_by_id_and_type(ids, otype).await;
-        self.record_operation("get_by_id_and_type", start, result.is_ok()).await;
+        self.record_operation("get_by_id_and_type", start, result.is_ok())
+            .await;
         result
     }
 
-    async fn get_neighbors(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_neighbors(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         let start = Instant::now();
         let result = self.inner.get_neighbors(id, atype, limit).await;
-        self.record_operation("get_neighbors", start, result.is_ok()).await;
+        self.record_operation("get_neighbors", start, result.is_ok())
+            .await;
         result
     }
 
-    async fn get_neighbor_ids(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>> {
+    async fn get_neighbor_ids(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoId>> {
         let start = Instant::now();
         let result = self.inner.get_neighbor_ids(id, atype, limit).await;
-        self.record_operation("get_neighbor_ids", start, result.is_ok()).await;
+        self.record_operation("get_neighbor_ids", start, result.is_ok())
+            .await;
         result
     }
 
-    async fn begin_transaction(&self) ->  AppResult<DatabaseTransaction> {
+    async fn begin_transaction(&self) -> AppResult<DatabaseTransaction> {
         let start = Instant::now();
         let result = self.inner.begin_transaction().await;
-        self.record_operation("begin_transaction", start, result.is_ok()).await;
+        self.record_operation("begin_transaction", start, result.is_ok())
+            .await;
         result
     }
 
     async fn execute_query(&self, query: String) -> AppResult<Vec<HashMap<String, String>>> {
         let start = Instant::now();
         let result = self.inner.execute_query(query).await;
-        self.record_operation("execute_query", start, result.is_ok()).await;
+        self.record_operation("execute_query", start, result.is_ok())
+            .await;
         result
     }
 
-
-    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_all_objects_of_type(
+        &self,
+        otype: TaoType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         let start = Instant::now();
         let result = self.inner.get_all_objects_of_type(otype, limit).await;
-        self.record_operation("get_all_objects_of_type", start, result.is_ok()).await;
+        self.record_operation("get_all_objects_of_type", start, result.is_ok())
+            .await;
         result
     }
 
     async fn get_graph_data(&self) -> AppResult<(Vec<TaoObject>, Vec<TaoAssociation>)> {
         let start = Instant::now();
         let result = self.inner.get_graph_data().await;
-        self.record_operation("get_graph_data", start, result.is_ok()).await;
+        self.record_operation("get_graph_data", start, result.is_ok())
+            .await;
         result
     }
 }
@@ -682,7 +869,6 @@ impl TaoDecorator for MetricsDecorator {
     fn decorator_name(&self) -> &'static str {
         "MetricsDecorator"
     }
-
 }
 
 /// Cache Decorator - Adds caching functionality for read operations
@@ -694,8 +880,16 @@ pub struct CacheDecorator {
 }
 
 impl CacheDecorator {
-    pub fn new(inner: Arc<dyn TaoDecorator>, cache: Arc<TaoMultiTierCache>, enable_caching: bool) -> Self {
-        Self { inner, cache, enable_caching }
+    pub fn new(
+        inner: Arc<dyn TaoDecorator>,
+        cache: Arc<TaoMultiTierCache>,
+        enable_caching: bool,
+    ) -> Self {
+        Self {
+            inner,
+            cache,
+            enable_caching,
+        }
     }
 }
 
@@ -755,8 +949,12 @@ impl TaoOperations for CacheDecorator {
         }
 
         // Try cache for simple queries
-        if let Ok(Some(cached_assocs)) = self.cache.get_associations(query.id1, &query.atype).await {
-            debug!("Cache hit for associations {} -> {}", query.id1, query.atype);
+        if let Ok(Some(cached_assocs)) = self.cache.get_associations(query.id1, &query.atype).await
+        {
+            debug!(
+                "Cache hit for associations {} -> {}",
+                query.id1, query.atype
+            );
             return Ok(cached_assocs);
         }
 
@@ -764,7 +962,10 @@ impl TaoOperations for CacheDecorator {
         let associations = self.inner.assoc_get(query.clone()).await?;
 
         // Populate cache
-        let _ = self.cache.put_associations(query.id1, &query.atype, &associations).await;
+        let _ = self
+            .cache
+            .put_associations(query.id1, &query.atype, &associations)
+            .await;
 
         Ok(associations)
     }
@@ -796,7 +997,12 @@ impl TaoOperations for CacheDecorator {
     }
 
     // Delegate other operations without caching
-    async fn obj_add(&self, otype: TaoType, data: Vec<u8>, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+    async fn obj_add(
+        &self,
+        otype: TaoType,
+        data: Vec<u8>,
+        owner_id: Option<TaoId>,
+    ) -> AppResult<TaoId> {
         self.inner.obj_add(otype, data, owner_id).await
     }
 
@@ -808,7 +1014,12 @@ impl TaoOperations for CacheDecorator {
         self.inner.obj_exists_by_type(id, otype).await
     }
 
-    async fn obj_update_by_type(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<bool> {
+    async fn obj_update_by_type(
+        &self,
+        id: TaoId,
+        otype: TaoType,
+        data: Vec<u8>,
+    ) -> AppResult<bool> {
         let result = self.inner.obj_update_by_type(id, otype, data).await;
         if let Ok(true) = result {
             if self.enable_caching {
@@ -832,31 +1043,60 @@ impl TaoOperations for CacheDecorator {
         self.inner.assoc_count(id1, atype).await
     }
 
-    async fn assoc_range(&self, id1: TaoId, atype: AssocType, offset: u64, limit: u32) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        offset: u64,
+        limit: u32,
+    ) -> AppResult<Vec<TaoAssociation>> {
         self.inner.assoc_range(id1, atype, offset, limit).await
     }
 
-    async fn assoc_time_range(&self, id1: TaoId, atype: AssocType, high_time: i64, low_time: i64, limit: Option<u32>) -> AppResult<Vec<TaoAssociation>> {
-        self.inner.assoc_time_range(id1, atype, high_time, low_time, limit).await
+    async fn assoc_time_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        high_time: i64,
+        low_time: i64,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoAssociation>> {
+        self.inner
+            .assoc_time_range(id1, atype, high_time, low_time, limit)
+            .await
     }
 
     async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
         self.inner.assoc_exists(id1, atype, id2).await
     }
 
-    async fn get_by_id_and_type(&self, ids: Vec<TaoId>, otype: TaoType) -> AppResult<Vec<TaoObject>> {
+    async fn get_by_id_and_type(
+        &self,
+        ids: Vec<TaoId>,
+        otype: TaoType,
+    ) -> AppResult<Vec<TaoObject>> {
         self.inner.get_by_id_and_type(ids, otype).await
     }
 
-    async fn get_neighbors(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_neighbors(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         self.inner.get_neighbors(id, atype, limit).await
     }
 
-    async fn get_neighbor_ids(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>> {
+    async fn get_neighbor_ids(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoId>> {
         self.inner.get_neighbor_ids(id, atype, limit).await
     }
 
-    async fn begin_transaction(&self) ->  AppResult<DatabaseTransaction> {
+    async fn begin_transaction(&self) -> AppResult<DatabaseTransaction> {
         self.inner.begin_transaction().await
     }
 
@@ -864,8 +1104,11 @@ impl TaoOperations for CacheDecorator {
         self.inner.execute_query(query).await
     }
 
-
-    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_all_objects_of_type(
+        &self,
+        otype: TaoType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         self.inner.get_all_objects_of_type(otype, limit).await
     }
 
@@ -879,7 +1122,6 @@ impl TaoDecorator for CacheDecorator {
     fn decorator_name(&self) -> &'static str {
         "CacheDecorator"
     }
-
 }
 
 /// Circuit Breaker Decorator - Adds fault tolerance
@@ -891,9 +1133,18 @@ pub struct CircuitBreakerDecorator {
 }
 
 impl CircuitBreakerDecorator {
-    pub fn new(inner: Arc<dyn TaoDecorator>, failure_threshold: u32, recovery_timeout: Duration, enable_circuit_breaker: bool) -> Self {
+    pub fn new(
+        inner: Arc<dyn TaoDecorator>,
+        failure_threshold: u32,
+        recovery_timeout: Duration,
+        enable_circuit_breaker: bool,
+    ) -> Self {
         let circuit_breaker = Arc::new(CircuitBreaker::new(failure_threshold, recovery_timeout));
-        Self { inner, circuit_breaker, enable_circuit_breaker }
+        Self {
+            inner,
+            circuit_breaker,
+            enable_circuit_breaker,
+        }
     }
 
     async fn execute_with_breaker<F, T>(&self, operation: F) -> AppResult<T>
@@ -913,12 +1164,19 @@ impl TaoOperations for CircuitBreakerDecorator {
         self.execute_with_breaker(self.inner.obj_get(id)).await
     }
 
-    async fn obj_add(&self, otype: TaoType, data: Vec<u8>, owner_id: Option<TaoId>) -> AppResult<TaoId> {
-        self.execute_with_breaker(self.inner.obj_add(otype, data, owner_id)).await
+    async fn obj_add(
+        &self,
+        otype: TaoType,
+        data: Vec<u8>,
+        owner_id: Option<TaoId>,
+    ) -> AppResult<TaoId> {
+        self.execute_with_breaker(self.inner.obj_add(otype, data, owner_id))
+            .await
     }
 
     async fn obj_update(&self, id: TaoId, data: Vec<u8>) -> AppResult<()> {
-        self.execute_with_breaker(self.inner.obj_update(id, data)).await
+        self.execute_with_breaker(self.inner.obj_update(id, data))
+            .await
     }
 
     async fn obj_delete(&self, id: TaoId) -> AppResult<bool> {
@@ -930,15 +1188,23 @@ impl TaoOperations for CircuitBreakerDecorator {
     }
 
     async fn obj_exists_by_type(&self, id: TaoId, otype: TaoType) -> AppResult<bool> {
-        self.execute_with_breaker(self.inner.obj_exists_by_type(id, otype)).await
+        self.execute_with_breaker(self.inner.obj_exists_by_type(id, otype))
+            .await
     }
 
-    async fn obj_update_by_type(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<bool> {
-        self.execute_with_breaker(self.inner.obj_update_by_type(id, otype, data)).await
+    async fn obj_update_by_type(
+        &self,
+        id: TaoId,
+        otype: TaoType,
+        data: Vec<u8>,
+    ) -> AppResult<bool> {
+        self.execute_with_breaker(self.inner.obj_update_by_type(id, otype, data))
+            .await
     }
 
     async fn obj_delete_by_type(&self, id: TaoId, otype: TaoType) -> AppResult<bool> {
-        self.execute_with_breaker(self.inner.obj_delete_by_type(id, otype)).await
+        self.execute_with_breaker(self.inner.obj_delete_by_type(id, otype))
+            .await
     }
 
     async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>> {
@@ -950,48 +1216,92 @@ impl TaoOperations for CircuitBreakerDecorator {
     }
 
     async fn assoc_delete(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
-        self.execute_with_breaker(self.inner.assoc_delete(id1, atype, id2)).await
+        self.execute_with_breaker(self.inner.assoc_delete(id1, atype, id2))
+            .await
     }
 
     async fn assoc_count(&self, id1: TaoId, atype: AssocType) -> AppResult<u64> {
-        self.execute_with_breaker(self.inner.assoc_count(id1, atype)).await
+        self.execute_with_breaker(self.inner.assoc_count(id1, atype))
+            .await
     }
 
-    async fn assoc_range(&self, id1: TaoId, atype: AssocType, offset: u64, limit: u32) -> AppResult<Vec<TaoAssociation>> {
-        self.execute_with_breaker(self.inner.assoc_range(id1, atype, offset, limit)).await
+    async fn assoc_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        offset: u64,
+        limit: u32,
+    ) -> AppResult<Vec<TaoAssociation>> {
+        self.execute_with_breaker(self.inner.assoc_range(id1, atype, offset, limit))
+            .await
     }
 
-    async fn assoc_time_range(&self, id1: TaoId, atype: AssocType, high_time: i64, low_time: i64, limit: Option<u32>) -> AppResult<Vec<TaoAssociation>> {
-        self.execute_with_breaker(self.inner.assoc_time_range(id1, atype, high_time, low_time, limit)).await
+    async fn assoc_time_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        high_time: i64,
+        low_time: i64,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoAssociation>> {
+        self.execute_with_breaker(
+            self.inner
+                .assoc_time_range(id1, atype, high_time, low_time, limit),
+        )
+        .await
     }
 
     async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
-        self.execute_with_breaker(self.inner.assoc_exists(id1, atype, id2)).await
+        self.execute_with_breaker(self.inner.assoc_exists(id1, atype, id2))
+            .await
     }
 
-    async fn get_by_id_and_type(&self, ids: Vec<TaoId>, otype: TaoType) -> AppResult<Vec<TaoObject>> {
-        self.execute_with_breaker(self.inner.get_by_id_and_type(ids, otype)).await
+    async fn get_by_id_and_type(
+        &self,
+        ids: Vec<TaoId>,
+        otype: TaoType,
+    ) -> AppResult<Vec<TaoObject>> {
+        self.execute_with_breaker(self.inner.get_by_id_and_type(ids, otype))
+            .await
     }
 
-    async fn get_neighbors(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
-        self.execute_with_breaker(self.inner.get_neighbors(id, atype, limit)).await
+    async fn get_neighbors(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
+        self.execute_with_breaker(self.inner.get_neighbors(id, atype, limit))
+            .await
     }
 
-    async fn get_neighbor_ids(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>> {
-        self.execute_with_breaker(self.inner.get_neighbor_ids(id, atype, limit)).await
+    async fn get_neighbor_ids(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoId>> {
+        self.execute_with_breaker(self.inner.get_neighbor_ids(id, atype, limit))
+            .await
     }
 
-    async fn begin_transaction(&self) ->  AppResult<DatabaseTransaction> {
-        self.execute_with_breaker(self.inner.begin_transaction()).await
+    async fn begin_transaction(&self) -> AppResult<DatabaseTransaction> {
+        self.execute_with_breaker(self.inner.begin_transaction())
+            .await
     }
 
     async fn execute_query(&self, query: String) -> AppResult<Vec<HashMap<String, String>>> {
-        self.execute_with_breaker(self.inner.execute_query(query)).await
+        self.execute_with_breaker(self.inner.execute_query(query))
+            .await
     }
 
-
-    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
-        self.execute_with_breaker(self.inner.get_all_objects_of_type(otype, limit)).await
+    async fn get_all_objects_of_type(
+        &self,
+        otype: TaoType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
+        self.execute_with_breaker(self.inner.get_all_objects_of_type(otype, limit))
+            .await
     }
 
     async fn get_graph_data(&self) -> AppResult<(Vec<TaoObject>, Vec<TaoAssociation>)> {
