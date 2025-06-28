@@ -12,9 +12,9 @@ use tracing::{info};
 
 use crate::infrastructure::{
     association_registry::AssociationRegistry,
-    database::DatabaseTransaction,
-    query_router::TaoQueryRouter,
-    shard_topology::ShardId,
+    database::{DatabaseInterface, DatabaseTransaction, Object, Association, ObjectQuery, AssocQuery, ObjectId, ObjectType, AssociationType, Timestamp, PostgresDatabase},
+    query_router::{TaoQueryRouter, QueryRouterConfig},
+    shard_topology::{ShardId, ShardInfo, ShardHealth},
 };
 
 
@@ -29,6 +29,37 @@ pub type TaoType = String;
 
 /// Association type (e.g., "friendship", "like")
 pub type AssocType = String;
+
+/// Configuration for database shards
+#[derive(Debug, Clone)]
+pub struct DatabaseShardConfig {
+    pub shard_id: u16,
+    pub connection_string: String,
+    pub region: String,
+    pub max_connections: u32,
+    pub min_connections: u32,
+    pub acquire_timeout_secs: u64,
+}
+
+/// Configuration for TAO initialization
+#[derive(Debug, Clone)]
+pub struct TaoConfig {
+    pub database_shards: Vec<DatabaseShardConfig>,
+    pub query_router_config: QueryRouterConfig,
+}
+
+impl TaoConfig {
+    pub fn new() -> Self {
+        Self {
+            database_shards: Vec::new(),
+            query_router_config: QueryRouterConfig::default(),
+        }
+    }
+
+    pub fn add_shard(&mut self, shard_config: DatabaseShardConfig) {
+        self.database_shards.push(shard_config);
+    }
+}
 
 /// TAO Association representing edge relationships between entities
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,9 +82,60 @@ pub struct TaoObject {
     pub version: u64,
 }
 
-/// Association query parameters for Meta TAO operations
+/// Conversion functions between TAO types and database types
+impl From<Object> for TaoObject {
+    fn from(obj: Object) -> Self {
+        TaoObject {
+            id: obj.id,
+            otype: obj.otype,
+            data: obj.data,
+            created_time: obj.created_time,
+            updated_time: obj.updated_time,
+            version: obj.version,
+        }
+    }
+}
+
+impl From<TaoObject> for Object {
+    fn from(tao_obj: TaoObject) -> Self {
+        Object {
+            id: tao_obj.id,
+            otype: tao_obj.otype,
+            data: tao_obj.data,
+            created_time: tao_obj.created_time,
+            updated_time: tao_obj.updated_time,
+            version: tao_obj.version,
+        }
+    }
+}
+
+impl From<Association> for TaoAssociation {
+    fn from(assoc: Association) -> Self {
+        TaoAssociation {
+            id1: assoc.id1,
+            atype: assoc.atype,
+            id2: assoc.id2,
+            time: assoc.time,
+            data: assoc.data,
+        }
+    }
+}
+
+impl From<TaoAssociation> for Association {
+    fn from(tao_assoc: TaoAssociation) -> Self {
+        Association {
+            id1: tao_assoc.id1,
+            atype: tao_assoc.atype,
+            id2: tao_assoc.id2,
+            time: tao_assoc.time,
+            data: tao_assoc.data,
+        }
+    }
+}
+
+/// TAO-specific query parameters (converted to database queries)
 #[derive(Debug, Clone)]
-pub struct AssocQuery {
+pub struct TaoAssocQuery {
     pub id1: TaoId,
     pub atype: AssocType,
     pub id2_set: Option<Vec<TaoId>>,
@@ -63,13 +145,39 @@ pub struct AssocQuery {
     pub offset: Option<u64>,
 }
 
-/// Object query parameters
+/// TAO object query parameters
 #[derive(Debug, Clone)]
-pub struct ObjectQuery {
+pub struct TaoObjectQuery {
     pub ids: Vec<TaoId>,
     pub otype: Option<TaoType>,
     pub limit: Option<u32>,
     pub offset: Option<u64>,
+}
+
+/// Convert TAO queries to database queries
+impl From<TaoAssocQuery> for AssocQuery {
+    fn from(tao_query: TaoAssocQuery) -> Self {
+        AssocQuery {
+            id1: tao_query.id1,
+            atype: tao_query.atype,
+            id2_set: tao_query.id2_set,
+            high_time: tao_query.high_time,
+            low_time: tao_query.low_time,
+            limit: tao_query.limit,
+            offset: tao_query.offset,
+        }
+    }
+}
+
+impl From<TaoObjectQuery> for ObjectQuery {
+    fn from(tao_query: TaoObjectQuery) -> Self {
+        ObjectQuery {
+            ids: tao_query.ids,
+            otype: tao_query.otype,
+            limit: tao_query.limit,
+            offset: tao_query.offset,
+        }
+    }
 }
 
 /// TAO Operations Interface - Meta's complete TAO API
@@ -93,7 +201,7 @@ pub trait TaoOperations: Send + Sync + std::fmt::Debug {
     async fn obj_delete_by_type(&self, id: TaoId, otype: TaoType) -> AppResult<bool>;
 
     // Association operations
-    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>>;
+    async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>>;
     async fn assoc_add(&self, assoc: TaoAssociation) -> AppResult<()>;
     async fn assoc_delete(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool>;
     async fn assoc_count(&self, id1: TaoId, atype: AssocType) -> AppResult<u64>;
@@ -142,6 +250,14 @@ pub trait TaoOperations: Send + Sync + std::fmt::Debug {
 
 }
 
+/// Current time in milliseconds since Unix epoch
+pub fn current_time_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
 /// TaoCore - Core TAO implementation following Meta's architecture
 /// Internal TAO layer that handles the actual Meta TAO logic
 #[derive(Debug)]
@@ -163,6 +279,41 @@ impl TaoCore {
         }
     }
 
+    /// Initialize TaoCore with configuration
+    pub async fn from_config(
+        mut config: TaoConfig,
+        association_registry: Arc<AssociationRegistry>,
+    ) -> AppResult<Self> {
+        let query_router = Arc::new(TaoQueryRouter::new(config.query_router_config).await);
+
+        // Initialize database shards from config
+        for shard_config in config.database_shards.drain(..) {
+            info!("Initializing shard {} at {}", shard_config.shard_id, shard_config.connection_string);
+
+            let database = PostgresDatabase::new(&shard_config.connection_string).await?;
+            database.initialize().await?;
+
+            let db_interface: Arc<dyn DatabaseInterface> = Arc::new(database);
+
+            let shard_info = ShardInfo {
+                shard_id: shard_config.shard_id,
+                connection_string: shard_config.connection_string.clone(),
+                region: shard_config.region,
+                health: ShardHealth::Healthy,
+                replicas: vec![],
+                last_health_check: current_time_millis(),
+                load_factor: 0.0,
+            };
+
+            query_router.add_shard(shard_info, db_interface).await?;
+            info!("✅ Shard {} configured", shard_config.shard_id);
+        }
+
+        info!("✅ All {} shards configured", config.database_shards.len());
+
+        Ok(Self::new(query_router, association_registry))
+    }
+
 }
 
 #[async_trait]
@@ -170,22 +321,16 @@ impl TaoOperations for TaoCore {
     async fn obj_add(&self, otype: TaoType, data: Vec<u8>, owner_id: Option<TaoId>) -> AppResult<TaoId> {
         let id = self.query_router.generate_tao_id(owner_id).await?;
         let database = self.query_router.get_database_for_object(id).await?;
-         database.create_object(id, otype.clone(), data).await?;  
+        database.create_object(id, otype.clone(), data).await?;
         Ok(id)
     }
 
     async fn obj_get(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
-        let query = ObjectQuery {
-            ids: vec![id],
-            otype: None,
-            limit: None,
-            offset: None,
-        };
         let database = self.query_router.get_database_for_object(id).await?;
-        let result = database.get_objects(query).await?;
+        let result = database.get_object(id).await?;
 
-        if let Some(obj) = result.objects.into_iter().next() {
-            Ok(Some(obj))
+        if let Some(obj) = result {
+            Ok(Some(obj.into())) // Convert Object to TaoObject
         } else {
             Ok(None)
         }
@@ -242,15 +387,18 @@ impl TaoOperations for TaoCore {
 
     async fn assoc_add(&self, assoc: TaoAssociation) -> AppResult<()> {
         let database = self.query_router.get_database_for_object(assoc.id1).await?;
-        database.create_association(assoc.clone()).await?;
+        let db_assoc: Association = assoc.clone().into(); // Convert TaoAssociation to Association
+        database.create_association(db_assoc).await?;
         info!("assoc_add: Created association {}->{} ({})", assoc.id1, assoc.id2, assoc.atype);
         Ok(())
     }
 
-    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_get(&self, query: TaoAssocQuery) -> AppResult<Vec<TaoAssociation>> {
         let database = self.query_router.get_database_for_object(query.id1).await?;
-        let result = database.get_associations(query).await?;
-        Ok(result.associations)
+        let db_query: AssocQuery = query.into();
+        let result = database.get_associations(db_query).await?;
+        // Convert database associations back to TAO associations
+        Ok(result.associations.into_iter().map(|assoc| assoc.into()).collect())
     }
 
     async fn assoc_delete(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
@@ -288,7 +436,8 @@ impl TaoOperations for TaoCore {
         };
         let database = self.query_router.get_database_for_object(id1).await?;
         let result = database.get_associations(query).await?;
-        Ok(result.associations)
+        // Convert database associations back to TAO associations
+        Ok(result.associations.into_iter().map(|assoc| assoc.into()).collect())
     }
 
     async fn assoc_time_range(
@@ -310,7 +459,8 @@ impl TaoOperations for TaoCore {
         };
         let database = self.query_router.get_database_for_object(id1).await?;
         let result = database.get_associations(query).await?;
-        Ok(result.associations)
+        // Convert database associations back to TAO associations
+        Ok(result.associations.into_iter().map(|assoc| assoc.into()).collect())
     }
 
     async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
@@ -343,7 +493,8 @@ impl TaoOperations for TaoCore {
                 offset: None,
             };
             let result = database.get_objects(query).await?;
-            results.extend(result.objects);
+            // Convert database objects back to TAO objects
+            results.extend(result.objects.into_iter().map(|obj| obj.into()));
         }
         Ok(results)
     }
@@ -389,7 +540,8 @@ impl TaoOperations for TaoCore {
                 offset: None,
             };
             let result = db.get_objects(query).await?;
-            all_objects.extend(result.objects);
+            // Convert database objects back to TAO objects
+            all_objects.extend(result.objects.into_iter().map(|obj| obj.into()));
         }
         Ok(all_objects)
     }
@@ -418,11 +570,13 @@ impl TaoOperations for TaoCore {
 
             // Get all objects from this shard
             let shard_objects = database.get_all_objects_from_shard().await?;
-            all_objects.extend(shard_objects);
+            // Convert database objects back to TAO objects
+            all_objects.extend(shard_objects.into_iter().map(|obj| obj.into()));
 
             // Get all associations from this shard
             let shard_associations = database.get_all_associations_from_shard().await?;
-            all_associations.extend(shard_associations);
+            // Convert database associations back to TAO associations
+            all_associations.extend(shard_associations.into_iter().map(|assoc| assoc.into()));
         }
 
         info!("get_graph_data: Retrieved {} objects and {} associations from {} shards",
@@ -433,13 +587,6 @@ impl TaoOperations for TaoCore {
 
 }
 
-/// Get current time in milliseconds since epoch
-pub fn current_time_millis() -> TaoTime {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as TaoTime
-}
 
 /// Create a TAO association
 pub fn create_tao_association(
@@ -542,7 +689,7 @@ mod tests {
         let assoc = create_tao_association(user1_id, "friend".to_string(), user2_id, None);
         tao.assoc_add(assoc.clone()).await.unwrap();
 
-        let fetched_assocs = tao.assoc_get(AssocQuery {
+        let fetched_assocs = tao.assoc_get(TaoAssocQuery {
             id1: user1_id,
             atype: "friend".to_string(),
             id2_set: None,
