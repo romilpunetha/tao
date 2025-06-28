@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TAO Graph Visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .control-group {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .control-group h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #fff;
+        }
+        
+        input, button, select {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        #graph {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            margin: 20px 0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        .node {
+            stroke: #fff;
+            stroke-width: 3px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .node:hover {
+            stroke-width: 5px;
+            filter: brightness(1.2);
+        }
+        
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+            stroke-width: 2px;
+        }
+        
+        .node-label {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            fill: #333;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            display: block;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 1.2em;
+        }
+        
+        .error {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid #ff6b6b;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 TAO Social Graph Database</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <h3>👤 Create User</h3>
+                <input type="text" id="userName" placeholder="Name" />
+                <input type="email" id="userEmail" placeholder="Email" />
+                <input type="text" id="userBio" placeholder="Bio (optional)" />
+                <button onclick="createUser()">Create User</button>
+            </div>
+            
+            <div class="control-group">
+                <h3>🤝 Create Relationship</h3>
+                <input type="number" id="fromUserId" placeholder="From User ID" />
+                <input type="number" id="toUserId" placeholder="To User ID" />
+                <select id="relationshipType">
+                    <option value="friendship">Friendship</option>
+                    <option value="follows">Follows</option>
+                    <option value="blocks">Blocks</option>
+                </select>
+                <button onclick="createRelationship()">Create Relationship</button>
+            </div>
+            
+            <div class="control-group">
+                <h3>🔧 Graph Controls</h3>
+                <button onclick="loadGraph()">Refresh Graph</button>
+                <button onclick="loadFullGraphData()">Load All Data (All Shards)</button>
+                <button onclick="generateSampleData()">Generate Sample Data</button>
+                <button onclick="clearGraph()">Clear Graph</button>
+            </div>
+        </div>
+        
+        <div id="graph"></div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <span class="stat-number" id="userCount">0</span>
+                <span>Users</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="relationshipCount">0</span>
+                <span>Relationships</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="avgConnections">0</span>
+                <span>Avg Connections</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let graphData = { users: [], relationships: [] };
+        let svg, simulation;
+        
+        // Initialize the visualization
+        function initVisualization() {
+            const container = d3.select('#graph');
+            const width = 900;
+            const height = 600;
+            
+            container.selectAll('*').remove();
+            
+            svg = container.append('svg')
+                .attr('width', width)
+                .attr('height', height);
+            
+            // Create simulation
+            simulation = d3.forceSimulation()
+                .force('link', d3.forceLink().id(d => d.id).distance(100))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(30));
+        }
+        
+        // API calls
+        async function createUser() {
+            const name = document.getElementById('userName').value;
+            const email = document.getElementById('userEmail').value;
+            const bio = document.getElementById('userBio').value || null;
+            
+            if (!name || !email) {
+                alert('Name and email are required');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, bio })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    alert(`User created with ID: ${result.data.id}`);
+                    document.getElementById('userName').value = '';
+                    document.getElementById('userEmail').value = '';
+                    document.getElementById('userBio').value = '';
+                    loadGraph();
+                } else {
+                    alert(`Error: ${result.error}`);
+                }
+            } catch (error) {
+                alert(`Network error: ${error.message}`);
+            }
+        }
+        
+        async function createRelationship() {
+            const fromUserId = parseInt(document.getElementById('fromUserId').value);
+            const toUserId = parseInt(document.getElementById('toUserId').value);
+            const relationshipType = document.getElementById('relationshipType').value;
+            
+            if (!fromUserId || !toUserId) {
+                alert('Both user IDs are required');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/relationships', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ from_user_id: fromUserId, to_user_id: toUserId, relationship_type: relationshipType })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    alert('Relationship created successfully');
+                    document.getElementById('fromUserId').value = '';
+                    document.getElementById('toUserId').value = '';
+                    loadGraph();
+                } else {
+                    alert(`Error: ${result.error}`);
+                }
+            } catch (error) {
+                alert(`Network error: ${error.message}`);
+            }
+        }
+        
+        async function loadGraph() {
+            try {
+                document.getElementById('graph').innerHTML = '<div class="loading">Loading graph data...</div>';
+                
+                const response = await fetch('/api/graph?limit=50');
+                const result = await response.json();
+                
+                if (result.success) {
+                    graphData = result.data;
+                    updateVisualization();
+                    updateStats();
+                } else {
+                    document.getElementById('graph').innerHTML = `<div class="error">Error loading graph: ${result.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('graph').innerHTML = `<div class="error">Network error: ${error.message}</div>`;
+            }
+        }
+        
+        async function loadFullGraphData() {
+            try {
+                document.getElementById('graph').innerHTML = '<div class="loading">Loading complete graph data from all shards...</div>';
+                
+                const response = await fetch('/api/graph-data');
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Transform the raw TAO data into the format expected by our visualization
+                    const transformedData = transformTaoDataToGraph(result.data);
+                    graphData = transformedData;
+                    updateVisualization();
+                    updateStats();
+                    updateFullDataStats(result.data);
+                } else {
+                    document.getElementById('graph').innerHTML = `<div class="error">Error loading graph: ${result.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('graph').innerHTML = `<div class="error">Network error: ${error.message}</div>`;
+            }
+        }
+        
+        function transformTaoDataToGraph(taoData) {
+            const users = [];
+            const relationships = [];
+            
+            // Transform objects to users (filter for user type objects)
+            taoData.objects.forEach(obj => {
+                if (obj.otype === 'user') {
+                    users.push({
+                        id: obj.id,
+                        name: obj.data.name || `User ${obj.id}`,
+                        email: obj.data.email || '',
+                        bio: obj.data.bio || null
+                    });
+                }
+            });
+            
+            // Transform associations to relationships
+            taoData.associations.forEach(assoc => {
+                relationships.push({
+                    id1: assoc.id1,
+                    id2: assoc.id2,
+                    relationship_type: assoc.atype,
+                    created_at: assoc.time
+                });
+            });
+            
+            return { users, relationships };
+        }
+        
+        function updateFullDataStats(taoData) {
+            // Add additional stats for all object types
+            const objectTypeCount = {};
+            const associationTypeCount = {};
+            
+            taoData.objects.forEach(obj => {
+                objectTypeCount[obj.otype] = (objectTypeCount[obj.otype] || 0) + 1;
+            });
+            
+            taoData.associations.forEach(assoc => {
+                associationTypeCount[assoc.atype] = (associationTypeCount[assoc.atype] || 0) + 1;
+            });
+            
+            console.log('Object types:', objectTypeCount);
+            console.log('Association types:', associationTypeCount);
+            
+            // Show details in an alert (or could be displayed in UI)
+            const objectDetails = Object.entries(objectTypeCount).map(([type, count]) => `${type}: ${count}`).join(', ');
+            const assocDetails = Object.entries(associationTypeCount).map(([type, count]) => `${type}: ${count}`).join(', ');
+            
+            setTimeout(() => {
+                alert(`Complete Graph Data Loaded!\n\nObjects: ${objectDetails}\nAssociations: ${assocDetails}`);
+            }, 100);
+        }
+        
+        function updateVisualization() {
+            initVisualization();
+            
+            if (!graphData.users.length) {
+                svg.append('text')
+                    .attr('x', 450)
+                    .attr('y', 300)
+                    .attr('text-anchor', 'middle')
+                    .attr('font-size', '20px')
+                    .attr('fill', '#666')
+                    .text('No users to display. Create some users first!');
+                return;
+            }
+            
+            // Create links
+            const links = svg.selectAll('.link')
+                .data(graphData.relationships)
+                .enter().append('line')
+                .attr('class', 'link');
+            
+            // Create nodes
+            const nodes = svg.selectAll('.node')
+                .data(graphData.users)
+                .enter().append('circle')
+                .attr('class', 'node')
+                .attr('r', 20)
+                .attr('fill', d => getNodeColor(d.id))
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended))
+                .on('click', showUserInfo);
+            
+            // Add labels
+            const labels = svg.selectAll('.node-label')
+                .data(graphData.users)
+                .enter().append('text')
+                .attr('class', 'node-label')
+                .text(d => d.name.length > 10 ? d.name.substring(0, 10) + '...' : d.name);
+            
+            // Update simulation
+            simulation
+                .nodes(graphData.users)
+                .on('tick', () => {
+                    links
+                        .attr('x1', d => getNodeById(d.id1).x)
+                        .attr('y1', d => getNodeById(d.id1).y)
+                        .attr('x2', d => getNodeById(d.id2).x)
+                        .attr('y2', d => getNodeById(d.id2).y);
+                    
+                    nodes
+                        .attr('cx', d => d.x)
+                        .attr('cy', d => d.y);
+                    
+                    labels
+                        .attr('x', d => d.x)
+                        .attr('y', d => d.y + 35);
+                });
+            
+            simulation.force('link').links(graphData.relationships.map(r => ({
+                source: r.id1,
+                target: r.id2
+            })));
+            
+            simulation.restart();
+        }
+        
+        function getNodeById(id) {
+            return graphData.users.find(u => u.id === id) || { x: 0, y: 0 };
+        }
+        
+        function getNodeColor(id) {
+            const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#feca57', '#ff9ff3', '#54a0ff'];
+            return colors[id % colors.length];
+        }
+        
+        function showUserInfo(event, d) {
+            alert(`User: ${d.name}\nEmail: ${d.email}\nBio: ${d.bio || 'No bio'}\nID: ${d.id}`);
+        }
+        
+        function updateStats() {
+            const userCount = graphData.users.length;
+            const relationshipCount = graphData.relationships.length;
+            const avgConnections = userCount > 0 ? (relationshipCount * 2 / userCount).toFixed(1) : 0;
+            
+            document.getElementById('userCount').textContent = userCount;
+            document.getElementById('relationshipCount').textContent = relationshipCount;
+            document.getElementById('avgConnections').textContent = avgConnections;
+        }
+        
+        // Drag functions
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+        
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+        
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+        
+        function clearGraph() {
+            graphData = { users: [], relationships: [] };
+            updateVisualization();
+            updateStats();
+        }
+        
+        async function generateSampleData() {
+            const sampleUsers = [
+                { name: 'Alice Johnson', email: 'alice@example.com', bio: 'Software Engineer' },
+                { name: 'Bob Smith', email: 'bob@example.com', bio: 'Product Manager' },
+                { name: 'Carol Wilson', email: 'carol@example.com', bio: 'Designer' },
+                { name: 'David Brown', email: 'david@example.com', bio: 'Data Scientist' },
+                { name: 'Eve Davis', email: 'eve@example.com', bio: 'DevOps Engineer' }
+            ];
+            
+            const createdUsers = [];
+            
+            // Create users
+            for (const user of sampleUsers) {
+                try {
+                    const response = await fetch('/api/users', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(user)
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        createdUsers.push(result.data.id);
+                    }
+                } catch (error) {
+                    console.error('Error creating user:', error);
+                }
+            }
+            
+            // Create relationships
+            const relationships = [
+                [0, 1, 'friendship'], [1, 2, 'friendship'], [2, 3, 'friendship'],
+                [3, 4, 'friendship'], [4, 0, 'friendship'], [0, 2, 'follows'],
+                [1, 3, 'follows'], [2, 4, 'follows']
+            ];
+            
+            for (const [fromIdx, toIdx, type] of relationships) {
+                if (createdUsers[fromIdx] && createdUsers[toIdx]) {
+                    try {
+                        await fetch('/api/relationships', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                from_user_id: createdUsers[fromIdx],
+                                to_user_id: createdUsers[toIdx],
+                                relationship_type: type
+                            })
+                        });
+                    } catch (error) {
+                        console.error('Error creating relationship:', error);
+                    }
+                }
+            }
+            
+            alert('Sample data generated!');
+            loadGraph();
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            initVisualization();
+            loadGraph();
+        });
+    </script>
+</body>
+</html>

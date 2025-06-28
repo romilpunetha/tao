@@ -21,6 +21,9 @@ pub enum AppError {
     TimeoutError(String),
     ConfigurationError(String),
     IdGenerationError(String),
+    StorageError(String),
+    TransactionError(String),
+    Thrift(thrift::Error),
     // Security and HTTP errors
     Unauthorized(String),
     Forbidden(String),
@@ -44,6 +47,9 @@ impl fmt::Display for AppError {
             AppError::TimeoutError(msg) => write!(f, "Timeout error: {}", msg),
             AppError::ConfigurationError(msg) => write!(f, "Configuration error: {}", msg),
             AppError::IdGenerationError(msg) => write!(f, "ID generation error: {}", msg),
+            AppError::StorageError(msg) => write!(f, "Storage error: {}", msg),
+            AppError::TransactionError(msg) => write!(f, "Transaction error: {}", msg),
+            AppError::Thrift(err) => write!(f, "Thrift error: {}", err),
             AppError::Unauthorized(msg) => write!(f, "Unauthorized: {}", msg),
             AppError::Forbidden(msg) => write!(f, "Forbidden: {}", msg),
             AppError::TooManyRequests(msg) => write!(f, "Too many requests: {}", msg),
@@ -77,6 +83,12 @@ impl IntoResponse for AppError {
             AppError::TimeoutError(msg) => (StatusCode::REQUEST_TIMEOUT, msg.clone()),
             AppError::ConfigurationError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::IdGenerationError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::StorageError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::TransactionError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::Thrift(err) => {
+                tracing::error!("Thrift error: {}", err);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
             AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
             AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
@@ -97,5 +109,12 @@ impl From<anyhow::Error> for AppError {
         AppError::Database(err)
     }
 }
+
+impl From<thrift::Error> for AppError {
+    fn from(err: thrift::Error) -> Self {
+        AppError::Thrift(err)
+    }
+}
+
 
 pub type AppResult<T> = Result<T, AppError>;

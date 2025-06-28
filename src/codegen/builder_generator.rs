@@ -44,9 +44,8 @@ impl<'a> BuilderGenerator<'a> {
 
     /// Generate necessary imports for builder
     fn generate_imports(&self, struct_name: &str) -> String {
-        format!(r#"use async_trait::async_trait;
-use crate::ent_framework::Entity;
-use crate::infrastructure::tao::{{TaoOperations, get_tao, current_time_millis}};
+        format!(r#"use crate::ent_framework::Entity;
+use crate::infrastructure::tao::{{get_tao, current_time_millis}};
 use crate::error::AppResult;
 use super::entity::{};
 use thrift::protocol::TSerializable;
@@ -157,7 +156,7 @@ use thrift::protocol::TSerializable;
         // Serialize using Thrift directly
         save_method.push_str("        // Serialize entity to bytes for TAO storage\n");
         save_method.push_str("        let data = {\n");
-        save_method.push_str("            use thrift::protocol::{TCompactOutputProtocol, TOutputProtocol};\n");
+        save_method.push_str("            use thrift::protocol::TCompactOutputProtocol;\n");
         save_method.push_str("            use std::io::Cursor;\n");
         save_method.push_str("            let mut buffer = Vec::new();\n");
         save_method.push_str("            let mut cursor = Cursor::new(&mut buffer);\n");
@@ -172,7 +171,7 @@ use thrift::protocol::TSerializable;
 
         // Create object using TAO - TAO handles ID generation internally
         let entity_type_str = entity_type.as_str();
-        save_method.push_str(&format!("        let generated_id = tao.obj_add(\"{}\".to_string(), data).await?;\n\n", entity_type_str));
+        save_method.push_str(&format!("        let generated_id = tao.obj_add(\"{}\".to_string(), data, None).await?;\n\n", entity_type_str));
 
         // Update entity with the generated ID
         save_method.push_str("        // Create final entity with generated ID\n");

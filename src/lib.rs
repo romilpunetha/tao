@@ -20,6 +20,7 @@ pub mod domains;
 
 // Common utilities
 pub mod error;
+pub mod data_seeder;
 
 // Re-exports for convenience  
 pub use error::{AppError, AppResult};

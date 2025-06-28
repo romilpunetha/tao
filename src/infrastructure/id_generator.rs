@@ -49,7 +49,7 @@ impl TaoIdGenerator {
         } else {
             // New millisecond - reset sequence
             self.last_timestamp.store(now, Ordering::Relaxed);
-            self.sequence.store(0, Ordering::Relaxed);
+            self.sequence.store(1, Ordering::Relaxed);
             0
         };
 
@@ -81,6 +81,9 @@ impl TaoIdGenerator {
         self.shard_id
     }
 }
+
+/// Type alias for external use
+pub type IdGenerator = TaoIdGenerator;
 
 static ID_GENERATOR: OnceLock<Arc<TaoIdGenerator>> = OnceLock::new();
 

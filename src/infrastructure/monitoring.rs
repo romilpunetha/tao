@@ -3,15 +3,13 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
 use serde::{Serialize, Deserialize};
 use tracing::{info, instrument};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-use crate::infrastructure::traits::MetricsInterface;
 use crate::error::AppResult;
-use crate::infrastructure::tao::TaoId;
+use crate::infrastructure::tao_core::TaoId;
 
 /// Comprehensive metrics collector
 #[derive(Debug)]
@@ -151,7 +149,6 @@ pub struct HealthStatus {
     pub cache_status: ServiceStatus,
     pub query_router_status: ServiceStatus,
     pub wal_status: ServiceStatus,
-    pub consistency_manager_status: ServiceStatus,
     pub last_health_check: Option<SystemTime>,
     pub health_check_failures: u64,
     pub services: HashMap<String, ComponentHealth>,
@@ -283,34 +280,8 @@ impl MetricsCollector {
 
     /// Record cache operation
     #[instrument(skip(self))]
-    pub async fn record_cache_operation(&self, operation: CacheOperation, hit: bool, lookup_time: Duration) {
+    pub async fn record_cache_operation(&self, hit: bool, lookup_time: Duration) {
         let mut metrics = self.cache_metrics.write().await;
-
-        match operation {
-            CacheOperation::L1Lookup => {
-                if hit {
-                    metrics.l1_hits += 1;
-                } else {
-                    metrics.l1_misses += 1;
-                }
-            }
-            CacheOperation::L2Lookup => {
-                if hit {
-                    metrics.l2_hits += 1;
-                } else {
-                    metrics.l2_misses += 1;
-                }
-            }
-            CacheOperation::Write => {
-                metrics.cache_writes += 1;
-            }
-            CacheOperation::Eviction => {
-                metrics.cache_evictions += 1;
-            }
-            CacheOperation::Invalidation => {
-                metrics.cache_invalidations += 1;
-            }
-        }
 
         // Update average lookup time
         let total_lookups = metrics.l1_hits + metrics.l1_misses + metrics.l2_hits + metrics.l2_misses;
@@ -329,19 +300,20 @@ impl MetricsCollector {
 
     /// Record business metric
     #[instrument(skip(self))]
-    pub async fn record_business_event(&self, event: BusinessEvent) {
+    pub async fn record_business_event(&self, event: &str) {
         let mut metrics = self.business_metrics.write().await;
 
         match event {
-            BusinessEvent::UserRegistered => metrics.new_user_registrations += 1,
-            BusinessEvent::PostCreated => metrics.posts_created += 1,
-            BusinessEvent::LikeGiven => metrics.likes_given += 1,
-            BusinessEvent::CommentMade => metrics.comments_made += 1,
-            BusinessEvent::FriendshipFormed => metrics.friendships_formed += 1,
-            BusinessEvent::GroupCreated => metrics.groups_created += 1,
-            BusinessEvent::EventCreated => metrics.events_created += 1,
-            BusinessEvent::CrossShardOperation => metrics.cross_shard_operations += 1,
-            BusinessEvent::WalTransaction => metrics.wal_transactions += 1,
+            "UserRegistered" => metrics.new_user_registrations += 1,
+            "PostCreated" => metrics.posts_created += 1,
+            "LikeGiven" => metrics.likes_given += 1,
+            "CommentMade" => metrics.comments_made += 1,
+            "FriendshipFormed" => metrics.friendships_formed += 1,
+            "GroupCreated" => metrics.groups_created += 1,
+            "EventCreated" => metrics.events_created += 1,
+            "CrossShardOperation" => metrics.cross_shard_operations += 1,
+            "WalTransaction" => metrics.wal_transactions += 1,
+            _ => { /* log unknown event */ }
         }
     }
 
@@ -375,9 +347,6 @@ impl MetricsCollector {
 
         // Check WAL health
         health.wal_status = self.check_wal_health().await;
-
-        // Check consistency manager health
-        health.consistency_manager_status = self.check_consistency_manager_health().await;
 
         // Determine overall status
         health.overall_status = self.determine_overall_status(&health);
@@ -497,7 +466,6 @@ impl MetricsCollector {
     async fn check_cache_health(&self) -> ServiceStatus { ServiceStatus::Healthy }
     async fn check_query_router_health(&self) -> ServiceStatus { ServiceStatus::Healthy }
     async fn check_wal_health(&self) -> ServiceStatus { ServiceStatus::Healthy }
-    async fn check_consistency_manager_health(&self) -> ServiceStatus { ServiceStatus::Healthy }
 
     fn determine_overall_status(&self, health: &HealthStatus) -> ServiceStatus {
         // Simple logic: if any critical component is unhealthy, overall is unhealthy
@@ -514,27 +482,7 @@ impl MetricsCollector {
     }
 }
 
-#[derive(Debug)]
-pub enum CacheOperation {
-    L1Lookup,
-    L2Lookup,
-    Write,
-    Eviction,
-    Invalidation,
-}
 
-#[derive(Debug)]
-pub enum BusinessEvent {
-    UserRegistered,
-    PostCreated,
-    LikeGiven,
-    CommentMade,
-    FriendshipFormed,
-    GroupCreated,
-    EventCreated,
-    CrossShardOperation,
-    WalTransaction,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsSnapshot {
@@ -545,106 +493,6 @@ pub struct MetricsSnapshot {
     pub business_metrics: BusinessMetrics,
     pub health_status: HealthStatus,
     pub snapshot_time: SystemTime,
-}
-
-/// Distributed tracing context
-#[derive(Debug, Clone)]
-pub struct TraceContext {
-    pub trace_id: String,
-    pub span_id: String,
-    pub parent_span_id: Option<String>,
-    pub baggage: HashMap<String, String>,
-}
-
-impl TraceContext {
-    pub fn new() -> Self {
-        Self {
-            trace_id: uuid::Uuid::new_v4().to_string(),
-            span_id: uuid::Uuid::new_v4().to_string(),
-            parent_span_id: None,
-            baggage: HashMap::new(),
-        }
-    }
-
-    pub fn child_span(&self) -> Self {
-        Self {
-            trace_id: self.trace_id.clone(),
-            span_id: uuid::Uuid::new_v4().to_string(),
-            parent_span_id: Some(self.span_id.clone()),
-            baggage: self.baggage.clone(),
-        }
-    }
-}
-
-/// Performance profiler for identifying bottlenecks
-#[derive(Debug)]
-pub struct PerformanceProfiler {
-    active_spans: Arc<RwLock<HashMap<String, ProfileSpan>>>,
-    completed_spans: Arc<RwLock<Vec<ProfileSpan>>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ProfileSpan {
-    pub span_id: String,
-    pub operation: String,
-    pub start_time: Instant,
-    pub end_time: Option<Instant>,
-    pub duration: Option<Duration>,
-    pub metadata: HashMap<String, String>,
-}
-
-impl PerformanceProfiler {
-    pub fn new() -> Self {
-        Self {
-            active_spans: Arc::new(RwLock::new(HashMap::new())),
-            completed_spans: Arc::new(RwLock::new(Vec::new())),
-        }
-    }
-
-    pub async fn start_span(&self, operation: &str) -> String {
-        let span_id = uuid::Uuid::new_v4().to_string();
-        let span = ProfileSpan {
-            span_id: span_id.clone(),
-            operation: operation.to_string(),
-            start_time: Instant::now(),
-            end_time: None,
-            duration: None,
-            metadata: HashMap::new(),
-        };
-
-        let mut active_spans = self.active_spans.write().await;
-        active_spans.insert(span_id.clone(), span);
-
-        span_id
-    }
-
-    pub async fn end_span(&self, span_id: &str) {
-        let mut active_spans = self.active_spans.write().await;
-        if let Some(mut span) = active_spans.remove(span_id) {
-            let end_time = Instant::now();
-            span.end_time = Some(end_time);
-            span.duration = Some(end_time - span.start_time);
-
-            let mut completed_spans = self.completed_spans.write().await;
-            completed_spans.push(span);
-
-            // Keep only last 1000 spans
-            if completed_spans.len() > 1000 {
-                completed_spans.remove(0);
-            }
-        }
-    }
-
-    pub async fn get_slowest_operations(&self, limit: usize) -> Vec<ProfileSpan> {
-        let completed_spans = self.completed_spans.read().await;
-        let mut spans = completed_spans.clone();
-
-        spans.sort_by(|a, b| {
-            b.duration.unwrap_or_default().cmp(&a.duration.unwrap_or_default())
-        });
-
-        spans.into_iter().take(limit).collect()
-    }
 }
 
 /// Initialize comprehensive monitoring
@@ -673,4 +521,9 @@ pub fn initialize_monitoring() -> AppResult<Arc<MetricsCollector>> {
 
     info!("Monitoring and observability initialized");
     Ok(metrics_collector)
+}
+
+/// Initialize metrics with default configuration for production use
+pub async fn initialize_metrics_default() -> AppResult<Arc<MetricsCollector>> {
+    initialize_monitoring()
 }

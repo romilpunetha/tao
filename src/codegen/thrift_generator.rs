@@ -22,7 +22,7 @@ impl<'a> ThriftGenerator<'a> {
         // Thrift header
         thrift_content.push_str(&format!("namespace rs tao_database.domains.{}\n\n", domain_name));
         thrift_content.push_str(&utils::generate_file_header("Thrift definition", entity_type));
-        thrift_content.push_str("include \"../../core/tao_core.thrift\"\n\n");
+        thrift_content.push_str("include \"../../core/tao.thrift\"\n\n");
         
         // Generate field validation typedefs
         thrift_content.push_str(&self.generate_field_typedefs(entity_type, fields)?);

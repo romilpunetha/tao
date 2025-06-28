@@ -11,9 +11,7 @@ pub use ent_trait::Entity;
 
 // Re-export TAO from infrastructure
 pub use crate::infrastructure::{
-    // Main TAO interface for developers
-    Tao, TaoConfig, TaoFactory, initialize_tao, initialize_tao_with_config, get_tao,
     // Core TAO types and operations
     TaoOperations, TaoId, TaoTime, TaoType, AssocType, TaoAssociation, TaoObject, 
-    AssocQuery, ObjectQuery, generate_tao_id, create_tao_association, current_time_millis
+    AssocQuery, ObjectQuery, create_tao_association, current_time_millis
 };

@@ -1,344 +1,304 @@
-# TAO Database - Social Graph System
+# 🔗 TAO Graph Database
 
-A modern implementation of Meta's TAO (The Associations and Objects) system using **Rust (Axum + Tokio)** backend and **React (TypeScript)** frontend.
+A modern, high-performance social graph database inspired by Meta's TAO (The Associations and Objects), implemented in Rust with a complete web visualization frontend.
 
-## 🌟 Features
+## ✨ Features
 
-### Backend (Rust + Axum + Tokio)
-- **Async/Await Architecture**: Full async support with Tokio runtime
-- **REST API**: Comprehensive endpoints for CRUD operations
-- **Multi-Level Caching**: L1 object cache, L2 association cache, count cache
-- **Graph Database**: Object-association model optimized for social graphs
-- **Thrift Integration**: Structured data serialization
-- **Access Control**: Viewer-based permissions system
-- **Batch Operations**: Efficient bulk queries and updates
+### 🏗️ Architecture
+- **Decorator Pattern**: Pluggable production features (WAL, caching, metrics, circuit breaker)
+- **Shard-Aware**: Query router handles efficient shard selection and routing
+- **Write-Ahead Log**: Durable transaction logging for failure recovery
+- **Multi-Tier Caching**: L1 (local) and L2 (distributed) caching layers
+- **Circuit Breaker**: Fault tolerance for external dependencies
+- **Metrics Collection**: Comprehensive monitoring and observability
 
-### Frontend (React + TypeScript)
-- **Interactive Graph Visualization**: D3.js-powered social graph display
-- **Real-time Updates**: React Query for efficient data fetching
-- **Material-UI Design**: Modern, responsive interface
-- **User Management**: Create, view, and manage users
-- **Social Features**: Friendships, follows, likes, and posts
-- **Graph Controls**: Zoom, pan, node selection, and filtering
+### 🎯 Core Capabilities
+- **Type-Safe Entity Framework**: Generated entities with compile-time safety
+- **Social Graph Operations**: Users, relationships, posts, comments, likes
+- **REST API**: Complete HTTP API for all graph operations
+- **Real-Time Visualization**: Interactive D3.js-powered graph visualization
+- **Sample Data Generation**: Realistic social network data for testing
+
+### 🔧 Technical Stack
+- **Backend**: Rust with Tokio async runtime
+- **Database**: PostgreSQL with connection pooling
+- **Web Framework**: Axum with CORS support
+- **Serialization**: Thrift for efficient data serialization
+- **Frontend**: Vanilla JavaScript with D3.js visualization
+- **Build System**: Cargo with optimized release builds
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Rust** (1.70+): [Install Rust](https://rustup.rs/)
-- **Node.js** (16+): [Install Node.js](https://nodejs.org/)
-- **npm** or **yarn**
+- Rust 1.70+ (with Cargo)
+- PostgreSQL 12+
+- Node.js (for frontend dependencies, optional)
 
-### Development Setup
+### Installation
 
-1. **Clone and enter the project**:
+1. **Clone the repository**
    ```bash
    git clone <repository-url>
+   cd tao
    ```
 
-2. **Start development environment**:
+2. **Start PostgreSQL**
    ```bash
-   ./scripts/dev.sh
+   # Using Homebrew (macOS)
+   brew services start postgresql
+   
+   # Using Docker
+   docker run -d --name postgres -p 5432:5432 \
+     -e POSTGRES_PASSWORD=password postgres:14
    ```
 
-   This will:
-   - Install frontend dependencies
-   - Build and start the Rust API server on port 3000
-   - Start the React dev server on port 3001
-   - Open your browser automatically
+3. **Run the complete demo**
+   ```bash
+   ./run_demo.sh
+   ```
 
-3. **Access the application**:
-   - **Frontend**: http://localhost:3001
-   - **API**: http://localhost:3000/api
-   - **Health Check**: http://localhost:3000/api/health
+   This script will:
+   - Build the TAO system
+   - Create the database
+   - Generate sample social graph data
+   - Start the web server at `http://localhost:3000`
 
-### Manual Setup (Alternative)
+### Manual Setup
 
-**Backend**:
-```bash
-# Start the Rust server
-cargo run --bin tao_database_server
-```
+1. **Build the system**
+   ```bash
+   cargo build --release
+   ```
 
-**Frontend**:
-```bash
-# Install dependencies and start React
-cd frontend
-npm install
-npm start
-```
+2. **Set up database**
+   ```bash
+   export DATABASE_URL="postgresql://postgres:password@localhost:5432/tao_graph"
+   createdb tao_graph
+   ```
 
-## 📊 API Endpoints
+3. **Generate sample data**
+   ```bash
+   ./target/release/generate_sample_data
+   ```
+
+4. **Start the web server**
+   ```bash
+   ./target/release/tao_web_server
+   ```
+
+5. **Open your browser**
+   Navigate to `http://localhost:3000` to see the graph visualization
+
+## 📊 Sample Data
+
+The system generates realistic social network data including:
+
+- **10 Users**: Software engineers with profiles and bios
+- **50+ Relationships**: Friendships, follows, colleagues, mentorships
+- **8 Posts**: Social media posts with hashtags and metadata
+- **Comments & Likes**: Engagement data for realistic interaction patterns
+
+### User Profiles
+- Alice Johnson (Software Engineer)
+- Bob Smith (Product Manager)
+- Carol Wilson (UX Designer)
+- David Brown (Data Scientist)
+- Eve Davis (DevOps Engineer)
+- And 5 more...
+
+## 🌐 API Reference
 
 ### Users
-- `GET /api/users` - List all users
-- `POST /api/users` - Create new user
-- `GET /api/users/{id}` - Get user by ID
-- `DELETE /api/users/{id}` - Delete user
-- `GET /api/users/{id}/friends` - Get user's friends
-- `GET /api/users/{id}/posts` - Get user's posts
-- `GET /api/users/{id}/stats` - Get user statistics
+```bash
+# Create user
+POST /api/users
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "bio": "Software Engineer"
+}
 
-### Posts
-- `POST /api/posts` - Create new post
-
-### Social Graph
-- `POST /api/friendships` - Create friendship
-- `POST /api/follows` - Create follow relationship
-- `POST /api/likes` - Create like
-- `GET /api/graph` - Get graph visualization data
-
-### Utilities
-- `GET /api/health` - Health check
-- `POST /api/seed` - Seed sample data
-
-## 🏗️ Architecture
-
-### TAO Concepts Implementation
-
-**Objects**: Core entities (Users, Posts, Comments, Groups, Pages)
-- Stored with unique IDs and typed data
-- Cached in L1 object cache
-- Support for batch operations
-
-**Associations**: Typed relationships between objects
-- Friendship, Follow, Like, Membership, etc.
-- Bidirectional for efficient reverse queries
-- Temporal support with time1/time2 fields
-- Cached query results in L2 association cache
-
-**Viewer Context**: Access control system
-- Permission-based data access
-- Privacy-aware friend/post visibility
-- Similar to Facebook's privacy model
-
-### Database Schema
-
-```sql
--- Objects table
-CREATE TABLE objects (
-    id INTEGER PRIMARY KEY,
-    object_type TEXT NOT NULL,
-    data BLOB NOT NULL,
-    created_time INTEGER NOT NULL,
-    updated_time INTEGER NOT NULL
-);
-
--- Associations table
-CREATE TABLE associations (
-    id INTEGER PRIMARY KEY,
-    id1 INTEGER NOT NULL,        -- source object
-    id2 INTEGER NOT NULL,        -- target object
-    assoc_type TEXT NOT NULL,    -- relationship type
-    data BLOB,                   -- association metadata
-    created_time INTEGER NOT NULL,
-    updated_time INTEGER NOT NULL,
-    time1 INTEGER,               -- temporal field 1
-    time2 INTEGER                -- temporal field 2
-);
+# Get user
+GET /api/users/{id}
 ```
 
-### Caching Strategy
+### Relationships
+```bash
+# Create relationship
+POST /api/relationships
+{
+  "from_user_id": 1,
+  "to_user_id": 2,
+  "relationship_type": "friendship"
+}
+```
 
-1. **L1 Object Cache**: Individual objects by ID
-2. **L2 Association Cache**: Query results by (id1, assoc_type)
-3. **Count Cache**: Association counts for quick stats
-4. **Cache Invalidation**: Smart invalidation on writes
+### Graph Data
+```bash
+# Get complete graph
+GET /api/graph?limit=50
+```
 
-## 🎨 Frontend Architecture
+## 🎨 Frontend Features
 
-### Components
-- **GraphVisualization**: D3.js force-directed graph
-- **UserManagement**: User CRUD operations
-- **App**: Main application shell
+### Interactive Graph Visualization
+- **Drag & Drop**: Move nodes around to explore connections
+- **Color-Coded Nodes**: Each user has a unique color
+- **Relationship Links**: Visual representation of connections
+- **User Information**: Click nodes to see user details
+- **Real-Time Updates**: Graph updates when new data is added
 
-### State Management
-- **React Query**: Server state management
-- **React Hooks**: Local state and API calls
-- **TypeScript**: Type-safe API contracts
+### Management Interface
+- **Create Users**: Add new users with name, email, and bio
+- **Create Relationships**: Build connections between users
+- **Sample Data Generator**: One-click generation of realistic data
+- **Statistics Dashboard**: View user count, relationships, and metrics
 
-### Graph Features
-- **Node Types**: Users (regular/verified)
-- **Edge Types**: Friendships, follows, likes
-- **Interactions**: Click selection, drag nodes, zoom/pan
-- **Real-time**: Auto-refresh on data changes
+## 🏗️ Architecture Deep Dive
+
+### Decorator Pattern Implementation
+```rust
+// Create TAO with production features
+let decorated_tao = TaoBuilder::new(core_tao)
+    .with_circuit_breaker(5, Duration::from_secs(30))
+    .with_wal(wal_instance)  
+    .with_metrics()
+    .with_caching(object_ttl, association_ttl)
+    .build();
+
+let tao = Tao::new(decorated_tao);
+```
+
+### Write-Ahead Log (WAL)
+- **Operation Logging**: All write operations recorded for replay
+- **No Shard Calculation**: WAL focuses on operation logging only
+- **Query Router Responsibility**: Shard routing handled by tao_core
+- **Failure Recovery**: Failed operations can be replayed from WAL
+
+### Query Routing
+- **Shard Selection**: Automatic routing based on object IDs
+- **Per-Shard Transactions**: No distributed transactions
+- **Load Balancing**: Even distribution across shards
+- **Health Monitoring**: Automatic shard health checking
 
 ## 🔧 Development
 
 ### Project Structure
-
 ```
-tao_db/
-├── Cargo.toml             # Rust project configuration
-├── build.rs               # Rust build script
-├── src/                   # Rust backend source code
-│   ├── bin/               # Binary crates (e.g., entc code generator)
-│   │   └── entc.rs
-│   ├── codegen/           # Code generation logic used by entc
-│   ├── core/              # Core TAO logic and utilities (e.g., tao_core.thrift)
-│   ├── domains/           # Domain-specific generated code
-│   │   └── <entity>/      # Code for a specific entity (e.g., user)
-│   │       ├── entity.thrift # Generated Thrift definition for the entity
-│   │       ├── entity.rs    # Rust struct generated from entity.thrift
-│   │       ├── builder.rs   # Generated Rust builder pattern
-│   │       ├── ent_impl.rs  # Generated Ent trait implementation
-│   │       └── mod.rs       # Module file for the entity domain
-│   ├── ent_framework/     # Core Ent framework traits and logic
-│   ├── infrastructure/    # Database, caching, ID generation
-│   ├── schemas/           # Rust schema definitions (input for entc)
-│   │   └── <entity_schema>.rs # e.g., user_schema.rs
-│   ├── error.rs           # Custom error types
-│   ├── lib.rs             # Main library crate
-│   └── main.rs            # Main server binary (if tao_database_server is not in bin/)
-├── frontend/              # React frontend application
-│   ├── package.json
-│   └── src/
-├── scripts/               # Build, development, and utility scripts
-├── schemas/               # Root directory for original Thrift files (DEPRECATED - see src/domains & src/schemas)
-├── thrift/                # Root directory for other Thrift files (DEPRECATED - tao_core.thrift moved to src/core)
-├── ENT_FRAMEWORK_IMPLEMENTATION.md # Details on the Ent framework implementation
-├── TAO_IMPLEMENTATION_STATUS.md    # Current status of TAO features
-└── README.md
+src/
+├── bin/                        # Executables
+│   ├── tao_web_server.rs      # Web server with REST API
+│   └── generate_sample_data.rs # Sample data generator
+├── infrastructure/            # Core TAO infrastructure
+│   ├── tao.rs                # Main TAO interface
+│   ├── tao_core.rs           # Core operations
+│   ├── tao_decorators.rs     # Decorator implementations
+│   ├── write_ahead_log.rs    # WAL implementation
+│   ├── query_router.rs       # Query routing
+│   └── ...
+├── ent_framework/            # Entity framework
+└── static/                   # Frontend assets
+    └── index.html           # Graph visualization UI
 ```
-*(Note: The `schemas/` and `thrift/` directories at the root are planned for removal/cleanup as part of architectural improvements, centralizing schema definitions as described above.)*
 
-### Code Generation Workflow
+### Key Components
 
-The project uses a schema-first approach for defining entities, powered by a custom `entc` (Ent Compiler) tool and Apache Thrift.
+1. **TaoCore**: Core graph operations and shard management
+2. **TaoDecorators**: Pluggable production features
+3. **QueryRouter**: Intelligent shard selection and routing
+4. **WriteAheadLog**: Durable transaction logging
+5. **EntityFramework**: Type-safe entity operations
 
-1.  **Define/Modify Rust Schemas:**
-    *   Entity structures, fields, validations, and edges are defined in Rust modules located in `src/schemas/` (e.g., `src/schemas/user_schema.rs`). These files implement the `EntSchema` trait.
-
-2.  **Generate Domain Code and Thrift Definitions (`entc`):**
-    *   Run the `entc` tool to process your Rust schemas:
-        ```bash
-        cargo run --bin entc generate
-        ```
-    *   This generates several files for each entity within `src/domains/<entity>/`:
-        *   `entity.thrift`: A Thrift data structure definition for the entity.
-        *   `builder.rs`: Rust code for the builder pattern.
-        *   `ent_impl.rs`: Rust code for `Ent` trait implementations and other entity-specific logic.
-        *   `mod.rs`: The module file for the domain.
-
-3.  **Compile Thrift Definitions to Rust Structs:**
-    *   Use the Apache Thrift compiler to generate Rust structs (implementing `TSerializable`, etc.) from the `*.thrift` files created by `entc`. A helper script is provided (or will be added):
-        ```bash
-        ./scripts/compile_domain_thrifts.sh
-        ```
-        *(If this script is not yet available, this step requires manual invocation of the `thrift` command, e.g., `thrift -o src/domains/<entity>/ -gen rs src/domains/<entity>/entity.thrift`, followed by moving the generated Rust file from `gen-rs/...` to `src/domains/<entity>/entity.rs`)*
-    *   This creates the `src/domains/<entity>/entity.rs` files.
-
-4.  **Commit Generated Files:**
-    *   All generated files (from both `entc` and the Thrift compiler) are typically committed to the repository.
-
-Refer to `ENT_FRAMEWORK_IMPLEMENTATION.md` for more details on schema definition and `entc` capabilities.
-
-### Key Technologies
-
-**Backend**:
-- **Axum**: Modern async web framework
-- **Tokio**: Async runtime
-- **SQLite**: Embedded database
-- **Serde**: Serialization
-- **Thrift**: Schema definition
-
-**Frontend**:
-- **React 18**: UI framework
-- **TypeScript**: Type safety
-- **Material-UI**: Component library
-- **D3.js**: Graph visualization
-- **React Query**: Data fetching
-- **Axios**: HTTP client
-
-## 🚀 Production Build
-
+### Building & Testing
 ```bash
-# Build for production
-./scripts/build.sh
+# Build all components
+cargo build --release
 
-# Run production server
-./target/release/tao_database_server
-```
-
-The production build:
-- Compiles Rust in release mode
-- Builds optimized React bundle
-- Serves static files from the Rust server
-- Single binary deployment
-
-## 📈 Performance Features
-
-### Caching
-- **Multi-level caching** reduces database load by 90%+
-- **LRU eviction** keeps hot data in memory
-- **Smart invalidation** maintains consistency
-
-### Database Optimization
-- **Indexes** on common query patterns
-- **Batch operations** reduce round-trips
-- **Connection pooling** for concurrency
-
-### Frontend Optimization
-- **Virtual DOM** for efficient updates
-- **Query caching** prevents redundant requests
-- **Code splitting** for faster initial loads
-
-## 🧪 Testing
-
-```bash
-# Run Rust tests
+# Run tests
 cargo test
 
-# Run frontend tests
-cd frontend
-npm test
+# Check code quality
+cargo clippy
+
+# Format code
+cargo fmt
 ```
 
-## 📝 Example Usage
+## 🎯 Use Cases
 
-### Seed Sample Data
-```bash
-curl -X POST http://localhost:3000/api/seed
-```
+### Social Networks
+- User profiles and connections
+- Content sharing and engagement
+- Real-time activity feeds
+- Recommendation systems
 
-### Create a User
-```bash
-curl -X POST http://localhost:3000/api/users \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "alice",
-    "email": "alice@example.com",
-    "full_name": "Alice Johnson",
-    "bio": "Software engineer",
-    "location": "San Francisco"
-  }'
-```
+### Professional Networks
+- Career connections and mentorships
+- Skill sharing and endorsements
+- Company organizational charts
+- Project collaboration tracking
 
-### Create a Friendship
-```bash
-curl -X POST http://localhost:3000/api/friendships \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user1_id": 1,
-    "user2_id": 2,
-    "relationship_type": "friend"
-  }'
-```
+### Content Platforms
+- Author-content relationships
+- User engagement metrics
+- Comment threading systems
+- Content recommendation graphs
 
-## 🔍 Monitoring
+## 🚀 Performance
 
-- **Health endpoint**: `/api/health`
-- **Metrics**: Request counts, cache hit rates
-- **Logging**: Structured logging with tracing
-- **React DevTools**: Component and query inspection
+### Optimizations
+- **Async/Await**: Non-blocking I/O throughout the stack
+- **Connection Pooling**: Efficient database connection management
+- **Batch Operations**: Bulk loading for improved throughput
+- **Caching Strategy**: Multi-tier caching reduces database load
+- **Compiled Binaries**: Rust's zero-cost abstractions for performance
 
-## 🎯 Learning Goals
+### Scalability Features
+- **Horizontal Sharding**: Distribute data across multiple databases
+- **Read Replicas**: Scale read operations independently
+- **Circuit Breakers**: Prevent cascade failures
+- **Metrics Collection**: Monitor performance bottlenecks
 
-This project demonstrates:
-- **Scalable social graph architecture** (Meta's TAO patterns)
-- **Modern async Rust** web development
-- **Type-safe full-stack** TypeScript/Rust
-- **Graph visualization** with D3.js
-- **Efficient caching strategies**
-- **REST API design** and documentation
+## 🛡️ Security
 
-Perfect for understanding how large-scale social platforms handle billions of social graph operations! 🌐✨
+- **Input Validation**: Comprehensive request validation
+- **SQL Injection Protection**: SQLx compile-time query checking
+- **CORS Configuration**: Secure cross-origin requests
+- **Error Handling**: Safe error propagation without information leakage
+
+## 📈 Monitoring
+
+### Built-in Metrics
+- Request latency and throughput
+- Database connection health
+- Cache hit/miss ratios
+- Error rates and types
+- Business metrics (user growth, engagement)
+
+### Health Checks
+- Database connectivity
+- Shard availability
+- WAL status
+- Cache performance
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add comprehensive tests
+4. Update documentation
+5. Submit a pull request
+
+## 📄 License
+
+MIT License - see LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- Inspired by Meta's TAO architecture
+- Built with the Rust ecosystem's excellent async libraries
+- D3.js for beautiful graph visualizations
+
+---
+
+**Ready to explore social graphs at scale? Start with `./run_demo.sh` and see TAO in action!** 🚀

@@ -53,7 +53,7 @@ impl WalStorage {
     /// Create a new WAL storage instance
     pub fn new(storage_dir: &str) -> AppResult<Self> {
         let storage_path = PathBuf::from(storage_dir);
-        
+
         // Create storage directory if it doesn't exist
         std::fs::create_dir_all(&storage_path).map_err(|e| {
             AppError::StorageError(format!("Failed to create WAL storage directory: {}", e))
@@ -107,7 +107,7 @@ impl WalStorage {
             let line = line.map_err(|e| {
                 AppError::StorageError(format!("Failed to read index line: {}", e))
             })?;
-            
+
             if line.trim().is_empty() {
                 continue;
             }
@@ -115,7 +115,7 @@ impl WalStorage {
             let entry: IndexEntry = serde_json::from_str(&line).map_err(|e| {
                 AppError::DeserializationError(format!("Failed to deserialize index entry: {}", e))
             })?;
-            
+
             index_entries.push(entry);
         }
 
@@ -144,7 +144,7 @@ impl WalStorage {
             let line = line.map_err(|e| {
                 AppError::StorageError(format!("Failed to read log line: {}", e))
             })?;
-            
+
             if line.trim().is_empty() {
                 continue;
             }
@@ -166,7 +166,7 @@ impl WalStorage {
                                         "Failed to deserialize transaction: {}", e
                                     ))
                                 })?;
-                            
+
                             // Update with latest status
                             txn.status = *status;
                             transactions.insert(entry.txn_id, txn);
@@ -182,8 +182,8 @@ impl WalStorage {
 
     /// Append a new transaction to the WAL
     pub async fn append_transaction(&self, txn: &PendingTransaction) -> AppResult<()> {
-        let current_time = crate::infrastructure::tao::current_time_millis();
-        
+        let current_time = crate::infrastructure::tao_core::current_time_millis();
+
         // Serialize transaction data
         let txn_data = serde_json::to_vec(txn).map_err(|e| {
             AppError::SerializationError(format!("Failed to serialize transaction: {}", e))
@@ -207,15 +207,15 @@ impl WalStorage {
             let offset = log_file.seek(SeekFrom::End(0)).map_err(|e| {
                 AppError::StorageError(format!("Failed to seek to end of log file: {}", e))
             })?;
-            
+
             writeln!(log_file, "{}", log_line).map_err(|e| {
                 AppError::StorageError(format!("Failed to write to log file: {}", e))
             })?;
-            
+
             log_file.flush().map_err(|e| {
                 AppError::StorageError(format!("Failed to flush log file: {}", e))
             })?;
-            
+
             offset
         };
 
@@ -236,7 +236,7 @@ impl WalStorage {
             writeln!(index_file, "{}", index_line).map_err(|e| {
                 AppError::StorageError(format!("Failed to write to index file: {}", e))
             })?;
-            
+
             index_file.flush().map_err(|e| {
                 AppError::StorageError(format!("Failed to flush index file: {}", e))
             })?;
@@ -252,7 +252,7 @@ impl WalStorage {
         txn_id: TxnId,
         status: TransactionStatus,
     ) -> AppResult<()> {
-        let current_time = crate::infrastructure::tao::current_time_millis();
+        let current_time = crate::infrastructure::tao_core::current_time_millis();
 
         // Create status update entry
         let log_entry = WalLogEntry {
@@ -272,15 +272,15 @@ impl WalStorage {
             let offset = log_file.seek(SeekFrom::End(0)).map_err(|e| {
                 AppError::StorageError(format!("Failed to seek to end of log file: {}", e))
             })?;
-            
+
             writeln!(log_file, "{}", log_line).map_err(|e| {
                 AppError::StorageError(format!("Failed to write status update to log file: {}", e))
             })?;
-            
+
             log_file.flush().map_err(|e| {
                 AppError::StorageError(format!("Failed to flush log file: {}", e))
             })?;
-            
+
             offset
         };
 
@@ -301,7 +301,7 @@ impl WalStorage {
             writeln!(index_file, "{}", index_line).map_err(|e| {
                 AppError::StorageError(format!("Failed to write to index file: {}", e))
             })?;
-            
+
             index_file.flush().map_err(|e| {
                 AppError::StorageError(format!("Failed to flush index file: {}", e))
             })?;
@@ -375,16 +375,16 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
     use crate::infrastructure::write_ahead_log::TaoOperation;
-    use crate::infrastructure::tao::TaoAssociation;
+    use crate::infrastructure::tao_core::TaoAssociation;
 
     #[tokio::test]
     async fn test_storage_creation() {
         let dir = tempdir().unwrap();
         let storage_dir = dir.path().to_str().unwrap();
-        
+
         let storage = WalStorage::new(storage_dir).unwrap();
         let stats = storage.get_storage_stats().unwrap();
-        
+
         assert_eq!(stats.log_file_size_bytes, 0);
         assert_eq!(stats.index_file_size_bytes, 0);
     }
@@ -393,31 +393,30 @@ mod tests {
     async fn test_transaction_persistence() {
         let dir = tempdir().unwrap();
         let storage_dir = dir.path().to_str().unwrap();
-        
+
         let storage = WalStorage::new(storage_dir).unwrap();
-        
+
         // Create a test transaction
         let operations = vec![TaoOperation::InsertAssociation {
-            shard: 0,
             assoc: TaoAssociation {
                 id1: 123,
                 atype: "test".to_string(),
                 id2: 456,
-                time: crate::infrastructure::tao::current_time_millis(),
+                time: crate::infrastructure::tao_core::current_time_millis(),
                 data: None,
             },
         }];
-        
+
         let txn = PendingTransaction::new(operations);
         let txn_id = txn.txn_id;
-        
+
         // Store the transaction
         storage.append_transaction(&txn).await.unwrap();
-        
+
         // Update its status
         storage.update_transaction_status(txn_id, TransactionStatus::Committed)
             .await.unwrap();
-        
+
         // Verify files were created and have content
         let stats = storage.get_storage_stats().unwrap();
         assert!(stats.log_file_size_bytes > 0);
@@ -428,25 +427,24 @@ mod tests {
     async fn test_transaction_loading() {
         let dir = tempdir().unwrap();
         let storage_dir = dir.path().to_str().unwrap();
-        
+
         // Create storage and add a transaction
         {
             let storage = WalStorage::new(storage_dir).unwrap();
             let operations = vec![TaoOperation::InsertObject {
-                shard: 0,
                 object_id: 1,
                 object_type: "test_object".to_string(),
                 data: vec![1, 2, 3],
             }];
-            
+
             let txn = PendingTransaction::new(operations);
             storage.append_transaction(&txn).await.unwrap();
         }
-        
+
         // Create new storage instance and load transactions
         let storage2 = WalStorage::new(storage_dir).unwrap();
         let loaded_txns = storage2.load_transactions().unwrap();
-        
+
         assert_eq!(loaded_txns.len(), 1);
         let txn = loaded_txns.values().next().unwrap();
         assert_eq!(txn.operations.len(), 1);
@@ -457,24 +455,23 @@ mod tests {
     async fn test_committed_transactions_not_loaded() {
         let dir = tempdir().unwrap();
         let storage_dir = dir.path().to_str().unwrap();
-        
+
         let storage = WalStorage::new(storage_dir).unwrap();
-        
+
         // Create and commit a transaction
         let operations = vec![TaoOperation::InsertObject {
-            shard: 0,
             object_id: 1,
             object_type: "test_object".to_string(),
             data: vec![1, 2, 3],
         }];
-        
+
         let txn = PendingTransaction::new(operations);
         let txn_id = txn.txn_id;
-        
+
         storage.append_transaction(&txn).await.unwrap();
         storage.update_transaction_status(txn_id, TransactionStatus::Committed)
             .await.unwrap();
-        
+
         // Load transactions - committed ones should not be loaded
         let loaded_txns = storage.load_transactions().unwrap();
         assert_eq!(loaded_txns.len(), 0);

@@ -77,8 +77,8 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
     svg.call(zoomBehavior);
 
     // Prepare data
-    const nodes: D3Node[] = graphData.nodes.map(d => ({ ...d }));
-    const edges: D3Edge[] = graphData.edges.map(d => ({ ...d }));
+    const nodes: D3Node[] = (graphData.nodes || []).map(d => ({ ...d }));
+    const edges: D3Edge[] = (graphData.edges || []).map(d => ({ ...d }));
 
     // Create simulation
     const simulation = d3.forceSimulation<D3Node>(nodes)

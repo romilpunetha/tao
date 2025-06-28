@@ -1,716 +1,313 @@
-// TAO - The Objects and Associations
-// Developer-friendly interface with all enterprise features integrated
+// TAO - Main TAO Interface with Decorator Pattern
+// This is the primary interface that developers use, wrapping tao_core with decorators
+// Architecture: TAO -> Decorators -> TaoCore -> QueryRouter -> Database
 
+use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, OnceCell};
-use tracing::{info, warn, error, instrument};
-
-use crate::error::{AppResult, AppError};
-// Re-export core TAO types for public use
-pub use crate::infrastructure::tao_core::{
-    TaoOperations, TaoId, TaoTime, TaoObject, TaoAssociation, AssocQuery, ObjectQuery, 
-    TaoType, AssocType, current_time_millis, create_tao_association, generate_tao_id
-};
+use std::time::Duration;
+use once_cell::sync::OnceCell;
 
 use crate::infrastructure::{
-    cache_layer::{TaoMultiTierCache, CacheConfig},
-    security::{SecurityService, SecurityContext, Permission},
-    monitoring::{MetricsCollector, BusinessEvent, CacheOperation},
-    replication::{ReplicationManager, ReplicationOperation, VectorClock},
+    association_registry::AssociationRegistry,
+    query_router::TaoQueryRouter,
+    tao_core::{TaoCore, TaoOperations, TaoId, TaoType, AssocType, TaoAssociation, TaoObject, AssocQuery},
+    tao_decorators::{
+        TaoDecorator, BaseTao, WalDecorator, MetricsDecorator, CacheDecorator, CircuitBreakerDecorator
+    },
+    database::DatabaseTransaction,
+    write_ahead_log::TaoWriteAheadLog,
+    cache_layer::TaoMultiTierCache,
+    monitoring::MetricsCollector,
 };
 
-/// TAO - The main interface developers use
-/// Includes caching, security, monitoring, and fault tolerance
+// Re-export core types for convenience
+pub use crate::infrastructure::tao_core::{
+    TaoId as Id, TaoType as Type, TaoAssociation as Association,
+    TaoObject as Object, current_time_millis, create_tao_association
+};
+
+/// TAO - The main entry point for all TAO operations
+/// This provides a fully decorated TAO instance with all production features
+#[derive(Debug)]
 pub struct Tao {
-    /// Core TAO interface for actual operations
-    core_tao: Arc<dyn TaoOperations>,
-    
-    /// Multi-tier caching system (L1 + L2)
-    cache: Arc<TaoMultiTierCache>,
-    
-    /// Security and authentication service
-    security: Arc<SecurityService>,
-    
-    /// Monitoring and metrics collection
-    metrics: Arc<MetricsCollector>,
-    
-    /// Replication manager for multi-master consistency
-    replication: Arc<ReplicationManager>,
-    
-    /// Circuit breaker for fault tolerance
-    circuit_breaker: Arc<CircuitBreaker>,
-    
-    /// Configuration
-    config: TaoConfig,
-}
-
-#[derive(Debug, Clone)]
-pub struct TaoConfig {
-    pub enable_caching: bool,
-    pub enable_security: bool,
-    pub enable_monitoring: bool,
-    pub enable_replication: bool,
-    pub enable_circuit_breaker: bool,
-    pub cache_object_ttl: Duration,
-    pub cache_association_ttl: Duration,
-    pub circuit_breaker_failure_threshold: u32,
-    pub circuit_breaker_recovery_timeout: Duration,
-}
-
-impl Default for TaoConfig {
-    fn default() -> Self {
-        TaoConfig {
-            enable_caching: true,
-            enable_security: true,
-            enable_monitoring: true,
-            enable_replication: true,
-            enable_circuit_breaker: true,
-            cache_object_ttl: Duration::from_secs(300),  // 5 minutes
-            cache_association_ttl: Duration::from_secs(600), // 10 minutes
-            circuit_breaker_failure_threshold: 5,
-            circuit_breaker_recovery_timeout: Duration::from_secs(30),
-        }
-    }
+    /// Fully decorated TAO implementation chain
+    decorated_tao: Arc<dyn TaoDecorator>,
 }
 
 impl Tao {
+    /// Create a new TAO instance with all decorators enabled
     pub fn new(
-        core_tao: Arc<dyn TaoOperations>,
+        tao_core: Arc<TaoCore>,
+        wal: Arc<TaoWriteAheadLog>,
         cache: Arc<TaoMultiTierCache>,
-        security: Arc<SecurityService>,
         metrics: Arc<MetricsCollector>,
-        replication: Arc<ReplicationManager>,
-        config: TaoConfig,
+        enable_caching: bool,
+        enable_circuit_breaker: bool,
     ) -> Self {
-        let circuit_breaker = Arc::new(CircuitBreaker::new(
-            config.circuit_breaker_failure_threshold,
-            config.circuit_breaker_recovery_timeout,
+        // Build the decorator chain: CircuitBreaker -> Metrics -> WAL -> Cache -> BaseTao -> TaoCore
+        let base_tao = Arc::new(BaseTao::new(tao_core));
+
+        let cache_decorator = Arc::new(CacheDecorator::new(
+            base_tao,
+            cache,
+            enable_caching,
+        ));
+
+        let wal_decorator = Arc::new(WalDecorator::new(
+            cache_decorator,
+            wal,
+        ));
+
+        let metrics_decorator = Arc::new(MetricsDecorator::new(
+            wal_decorator,
+            metrics,
+        ));
+
+        let circuit_breaker_decorator = Arc::new(CircuitBreakerDecorator::new(
+            metrics_decorator,
+            5, // failure threshold
+            Duration::from_secs(30), // recovery timeout
+            enable_circuit_breaker,
         ));
 
         Self {
-            core_tao,
-            cache,
-            security,
-            metrics,
-            replication,
-            circuit_breaker,
-            config,
+            decorated_tao: circuit_breaker_decorator,
         }
     }
 
-    /// Check permissions for an operation
-    async fn check_permission(&self, context: &SecurityContext, permission: Permission) -> AppResult<()> {
-        if !self.config.enable_security {
-            return Ok(());
+    /// Create a minimal TAO instance with only basic functionality
+    pub fn minimal(tao_core: Arc<TaoCore>) -> Self {
+        let base_tao = Arc::new(BaseTao::new(tao_core));
+        Self {
+            decorated_tao: base_tao,
         }
-
-        if !self.security.check_permission(context, &permission).await {
-            self.metrics.record_business_event(BusinessEvent::CrossShardOperation).await;
-            return Err(AppError::Forbidden("Insufficient permissions".to_string()));
-        }
-
-        Ok(())
-    }
-
-    /// Record operation metrics
-    async fn record_operation_metrics(&self, operation: &str, duration: Duration, success: bool) {
-        if self.config.enable_monitoring {
-            self.metrics.record_request(operation, duration, success).await;
-        }
-    }
-
-    /// Log replication operation
-    async fn log_replication(&self, operation: ReplicationOperation) -> AppResult<()> {
-        if self.config.enable_replication {
-            let target_shards = vec![]; // Would be populated based on operation
-            self.replication.log_operation(operation, target_shards).await?;
-        }
-        Ok(())
-    }
-
-    /// Execute operation with circuit breaker protection
-    async fn execute_with_circuit_breaker<F, T>(&self, operation: F) -> AppResult<T>
-    where
-        F: std::future::Future<Output = AppResult<T>>,
-    {
-        if !self.config.enable_circuit_breaker {
-            return operation.await;
-        }
-
-        self.circuit_breaker.execute(operation).await
     }
 }
 
 #[async_trait]
 impl TaoOperations for Tao {
-    /// Get object with full production features
-    #[instrument(skip(self), fields(object_id = %id))]
     async fn obj_get(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
-        let start_time = Instant::now();
-        let operation = "obj_get";
-        
-        // Note: In production, security context would be extracted from request context
-        // For now, we'll skip security checks for read operations or use a default context
-        
-        let result = async {
-            // 1. Try cache first (if enabled)
-            if self.config.enable_caching {
-                if let Some(cached_object) = self.cache.get_object(id).await? {
-                    self.metrics.record_cache_operation(
-                        CacheOperation::L1Lookup, 
-                        true, 
-                        start_time.elapsed()
-                    ).await;
-                    return Ok(Some(cached_object));
-                }
-            }
-
-            // 2. Circuit breaker protection
-            let object = self.execute_with_circuit_breaker(async {
-                self.core_tao.obj_get(id).await
-            }).await?;
-
-            // 3. Populate cache if object found
-            if let Some(ref obj) = object {
-                if self.config.enable_caching {
-                    self.cache.put_object(id, obj).await?;
-                }
-            }
-
-            Ok(object)
-        }.await;
-
-        // Record metrics
-        let success = result.is_ok();
-        self.record_operation_metrics(operation, start_time.elapsed(), success).await;
-
-        if success {
-            info!("Successfully retrieved object {}", id);
-        } else {
-            warn!("Failed to retrieve object {}: {:?}", id, result);
-        }
-
-        result
+        self.decorated_tao.obj_get(id).await
     }
 
-    /// Add object with security, replication, and monitoring
-    #[instrument(skip(self, data), fields(object_type = %otype))]
-    async fn obj_add(&self, otype: TaoType, data: Vec<u8>) -> AppResult<TaoId> {
-        let start_time = Instant::now();
-        let operation = "obj_add";
-
-        let result = async {
-            // 1. Circuit breaker protection
-            let object_id = self.execute_with_circuit_breaker(async {
-                self.core_tao.obj_add(otype.clone(), data.clone()).await
-            }).await?;
-
-            // 2. Log replication operation
-            let replication_op = ReplicationOperation::CreateObject {
-                object_id,
-                object_type: otype.clone(),
-                data: data.clone(),
-                owner_id: 0, // Default owner
-            };
-            self.log_replication(replication_op).await?;
-
-            // 3. Record business metrics
-            self.metrics.record_business_event(BusinessEvent::PostCreated).await;
-
-            Ok(object_id)
-        }.await;
-
-        // Record metrics
-        let success = result.is_ok();
-        self.record_operation_metrics(operation, start_time.elapsed(), success).await;
-
-        if success {
-            info!("Successfully created object of type {}", otype);
-        } else {
-            error!("Failed to create object of type {}: {:?}", otype, result);
-        }
-
-        result
+    async fn obj_add(&self, otype: TaoType, data: Vec<u8>, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+        self.decorated_tao.obj_add(otype, data, owner_id).await
     }
 
-
-    /// Update object with cache invalidation and replication
-    #[instrument(skip(self, data), fields(object_id = %id))]
     async fn obj_update(&self, id: TaoId, data: Vec<u8>) -> AppResult<()> {
-        let start_time = Instant::now();
-        let operation = "obj_update";
-
-        let result = async {
-            // 1. Circuit breaker protection
-            self.execute_with_circuit_breaker(async {
-                self.core_tao.obj_update(id, data.clone()).await
-            }).await?;
-
-            // 2. Invalidate cache
-            if self.config.enable_caching {
-                self.cache.invalidate_object(id).await?;
-            }
-
-            // 3. Log replication operation
-            let replication_op = ReplicationOperation::UpdateObject {
-                object_id: id,
-                data: data.clone(),
-                previous_version: VectorClock::new(), // Would track actual version
-            };
-            self.log_replication(replication_op).await?;
-
-            Ok(())
-        }.await;
-
-        // Record metrics
-        let success = result.is_ok();
-        self.record_operation_metrics(operation, start_time.elapsed(), success).await;
-
-        result
+        self.decorated_tao.obj_update(id, data).await
     }
 
-    /// Delete object with cache invalidation and replication
-    #[instrument(skip(self), fields(object_id = %id))]
     async fn obj_delete(&self, id: TaoId) -> AppResult<bool> {
-        let start_time = Instant::now();
-        let operation = "obj_delete";
-
-        let result = async {
-            // 1. Circuit breaker protection
-            let deleted = self.execute_with_circuit_breaker(async {
-                self.core_tao.obj_delete(id).await
-            }).await?;
-
-            if deleted {
-                // 2. Invalidate cache
-                if self.config.enable_caching {
-                    self.cache.invalidate_object(id).await?;
-                }
-
-                // 3. Log replication operation
-                let replication_op = ReplicationOperation::DeleteObject {
-                    object_id: id,
-                    previous_version: VectorClock::new(),
-                };
-                self.log_replication(replication_op).await?;
-            }
-
-            Ok(deleted)
-        }.await;
-
-        // Record metrics
-        let success = result.is_ok();
-        self.record_operation_metrics(operation, start_time.elapsed(), success).await;
-
-        result
-    }
-
-    /// Get associations with caching
-    #[instrument(skip(self), fields(id1 = %query.id1, atype = %query.atype))]
-    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>> {
-        let start_time = Instant::now();
-        let operation = "assoc_get";
-
-        let result = async {
-            // 1. Try cache first (if enabled)
-            if self.config.enable_caching && query.id2_set.is_none() {
-                if let Some(cached_assocs) = self.cache.get_associations(query.id1, &query.atype).await? {
-                    self.metrics.record_cache_operation(
-                        CacheOperation::L1Lookup, 
-                        true, 
-                        start_time.elapsed()
-                    ).await;
-                    return Ok(cached_assocs);
-                }
-            }
-
-            // 2. Circuit breaker protection
-            let associations = self.execute_with_circuit_breaker(async {
-                self.core_tao.assoc_get(query.clone()).await
-            }).await?;
-
-            // 3. Populate cache if simple query
-            if self.config.enable_caching && query.id2_set.is_none() {
-                self.cache.put_associations(query.id1, &query.atype, &associations).await?;
-            }
-
-            Ok(associations)
-        }.await;
-
-        // Record metrics
-        let success = result.is_ok();
-        self.record_operation_metrics(operation, start_time.elapsed(), success).await;
-
-        result
-    }
-
-    /// Add association with replication
-    #[instrument(skip(self), fields(id1 = %assoc.id1, atype = %assoc.atype, id2 = %assoc.id2))]
-    async fn assoc_add(&self, assoc: TaoAssociation) -> AppResult<()> {
-        let start_time = Instant::now();
-        let operation = "assoc_add";
-
-        let result = async {
-            // 1. Circuit breaker protection
-            self.execute_with_circuit_breaker(async {
-                self.core_tao.assoc_add(assoc.clone()).await
-            }).await?;
-
-            // 2. Invalidate relevant cache entries
-            if self.config.enable_caching {
-                // Invalidate associations for both source and target objects
-                let _cache_key1 = format!("assoc:{}:{}", assoc.id1, assoc.atype);
-                let _cache_key2 = format!("assoc:{}:{}", assoc.id2, assoc.atype);
-                // Cache invalidation would happen here in production
-            }
-
-            // 3. Log replication operation
-            let replication_op = ReplicationOperation::CreateAssociation {
-                association: assoc.clone(),
-            };
-            self.log_replication(replication_op).await?;
-
-            // 4. Record business metrics based on association type
-            match assoc.atype.as_str() {
-                "friendship" => self.metrics.record_business_event(BusinessEvent::FriendshipFormed).await,
-                "like" => self.metrics.record_business_event(BusinessEvent::LikeGiven).await,
-                "comment" => self.metrics.record_business_event(BusinessEvent::CommentMade).await,
-                _ => self.metrics.record_business_event(BusinessEvent::CrossShardOperation).await,
-            }
-
-            Ok(())
-        }.await;
-
-        // Record metrics
-        let success = result.is_ok();
-        self.record_operation_metrics(operation, start_time.elapsed(), success).await;
-
-        result
-    }
-
-    /// Delete association with cache invalidation
-    #[instrument(skip(self), fields(id1 = %id1, atype = %atype, id2 = %id2))]
-    async fn assoc_delete(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
-        let start_time = Instant::now();
-        let operation = "assoc_delete";
-
-        let result = async {
-            // 1. Circuit breaker protection
-            let deleted = self.execute_with_circuit_breaker(async {
-                self.core_tao.assoc_delete(id1, atype.clone(), id2).await
-            }).await?;
-
-            if deleted {
-                // 2. Invalidate cache
-                if self.config.enable_caching {
-                    // Invalidate associations for both objects
-                    let _cache_key1 = format!("assoc:{}:{}", id1, atype);
-                    let _cache_key2 = format!("assoc:{}:{}", id2, atype);
-                    // Cache invalidation would happen here
-                }
-
-                // 3. Log replication operation
-                let replication_op = ReplicationOperation::DeleteAssociation {
-                    id1,
-                    atype: atype.clone(),
-                    id2,
-                    previous_version: VectorClock::new(),
-                };
-                self.log_replication(replication_op).await?;
-            }
-
-            Ok(deleted)
-        }.await;
-
-        // Record metrics
-        let success = result.is_ok();
-        self.record_operation_metrics(operation, start_time.elapsed(), success).await;
-
-        result
-    }
-
-    // Delegate remaining operations to core TAO with metrics
-    async fn assoc_count(&self, id1: TaoId, atype: AssocType) -> AppResult<u64> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.assoc_count(id1, atype).await
-        }).await;
-        self.record_operation_metrics("assoc_count", start_time.elapsed(), result.is_ok()).await;
-        result
-    }
-
-    async fn assoc_range(&self, id1: TaoId, atype: AssocType, offset: u64, limit: u32) -> AppResult<Vec<TaoAssociation>> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.assoc_range(id1, atype, offset, limit).await
-        }).await;
-        self.record_operation_metrics("assoc_range", start_time.elapsed(), result.is_ok()).await;
-        result
-    }
-
-    async fn assoc_time_range(&self, id1: TaoId, atype: AssocType, high_time: i64, low_time: i64, limit: Option<u32>) -> AppResult<Vec<TaoAssociation>> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.assoc_time_range(id1, atype, high_time, low_time, limit).await
-        }).await;
-        self.record_operation_metrics("assoc_time_range", start_time.elapsed(), result.is_ok()).await;
-        result
-    }
-
-    async fn get_by_id_and_type(&self, ids: Vec<TaoId>, otype: TaoType) -> AppResult<Vec<TaoObject>> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.get_by_id_and_type(ids, otype).await
-        }).await;
-        self.record_operation_metrics("get_by_id_and_type", start_time.elapsed(), result.is_ok()).await;
-        result
-    }
-
-    async fn obj_update_by_type(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<bool> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.obj_update_by_type(id, otype, data).await
-        }).await;
-        self.record_operation_metrics("obj_update_by_type", start_time.elapsed(), result.is_ok()).await;
-        
-        // Invalidate cache if successful
-        if let Ok(true) = result {
-            if self.config.enable_caching {
-                let _ = self.cache.invalidate_object(id).await;
-            }
-        }
-        
-        result
-    }
-
-    async fn obj_delete_by_type(&self, id: TaoId, otype: TaoType) -> AppResult<bool> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.obj_delete_by_type(id, otype).await
-        }).await;
-        self.record_operation_metrics("obj_delete_by_type", start_time.elapsed(), result.is_ok()).await;
-        
-        // Invalidate cache if successful
-        if let Ok(true) = result {
-            if self.config.enable_caching {
-                let _ = self.cache.invalidate_object(id).await;
-            }
-        }
-        
-        result
-    }
-
-    async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.assoc_exists(id1, atype, id2).await
-        }).await;
-        self.record_operation_metrics("assoc_exists", start_time.elapsed(), result.is_ok()).await;
-        result
+        self.decorated_tao.obj_delete(id).await
     }
 
     async fn obj_exists(&self, id: TaoId) -> AppResult<bool> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.obj_exists(id).await
-        }).await;
-        self.record_operation_metrics("obj_exists", start_time.elapsed(), result.is_ok()).await;
-        result
+        self.decorated_tao.obj_exists(id).await
     }
 
     async fn obj_exists_by_type(&self, id: TaoId, otype: TaoType) -> AppResult<bool> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.obj_exists_by_type(id, otype).await
-        }).await;
-        self.record_operation_metrics("obj_exists_by_type", start_time.elapsed(), result.is_ok()).await;
-        result
+        self.decorated_tao.obj_exists_by_type(id, otype).await
+    }
+
+    async fn obj_update_by_type(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<bool> {
+        self.decorated_tao.obj_update_by_type(id, otype, data).await
+    }
+
+    async fn obj_delete_by_type(&self, id: TaoId, otype: TaoType) -> AppResult<bool> {
+        self.decorated_tao.obj_delete_by_type(id, otype).await
+    }
+
+    async fn assoc_get(&self, query: AssocQuery) -> AppResult<Vec<TaoAssociation>> {
+        self.decorated_tao.assoc_get(query).await
+    }
+
+    async fn assoc_add(&self, assoc: TaoAssociation) -> AppResult<()> {
+        self.decorated_tao.assoc_add(assoc).await
+    }
+
+    async fn assoc_delete(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
+        self.decorated_tao.assoc_delete(id1, atype, id2).await
+    }
+
+    async fn assoc_count(&self, id1: TaoId, atype: AssocType) -> AppResult<u64> {
+        self.decorated_tao.assoc_count(id1, atype).await
+    }
+
+    async fn assoc_range(&self, id1: TaoId, atype: AssocType, offset: u64, limit: u32) -> AppResult<Vec<TaoAssociation>> {
+        self.decorated_tao.assoc_range(id1, atype, offset, limit).await
+    }
+
+    async fn assoc_time_range(&self, id1: TaoId, atype: AssocType, high_time: i64, low_time: i64, limit: Option<u32>) -> AppResult<Vec<TaoAssociation>> {
+        self.decorated_tao.assoc_time_range(id1, atype, high_time, low_time, limit).await
+    }
+
+    async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
+        self.decorated_tao.assoc_exists(id1, atype, id2).await
+    }
+
+    async fn get_by_id_and_type(&self, ids: Vec<TaoId>, otype: TaoType) -> AppResult<Vec<TaoObject>> {
+        self.decorated_tao.get_by_id_and_type(ids, otype).await
     }
 
     async fn get_neighbors(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.get_neighbors(id, atype, limit).await
-        }).await;
-        self.record_operation_metrics("get_neighbors", start_time.elapsed(), result.is_ok()).await;
-        result
+        self.decorated_tao.get_neighbors(id, atype, limit).await
     }
 
     async fn get_neighbor_ids(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.get_neighbor_ids(id, atype, limit).await
-        }).await;
-        self.record_operation_metrics("get_neighbor_ids", start_time.elapsed(), result.is_ok()).await;
-        result
+        self.decorated_tao.get_neighbor_ids(id, atype, limit).await
     }
 
-    async fn begin_transaction(&self) -> AppResult<crate::infrastructure::DatabaseTransaction> {
-        let start_time = Instant::now();
-        let result = self.execute_with_circuit_breaker(async {
-            self.core_tao.begin_transaction().await
-        }).await;
-        self.record_operation_metrics("begin_transaction", start_time.elapsed(), result.is_ok()).await;
-        result
-    }
-}
-
-/// Circuit breaker for fault tolerance
-#[derive(Debug)]
-pub struct CircuitBreaker {
-    failure_threshold: u32,
-    recovery_timeout: Duration,
-    state: Arc<RwLock<CircuitBreakerState>>,
-}
-
-#[derive(Debug, Clone)]
-struct CircuitBreakerState {
-    failures: u32,
-    last_failure_time: Option<Instant>,
-    state: CircuitState,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum CircuitState {
-    Closed,
-    Open,
-    HalfOpen,
-}
-
-impl CircuitBreaker {
-    pub fn new(failure_threshold: u32, recovery_timeout: Duration) -> Self {
-        Self {
-            failure_threshold,
-            recovery_timeout,
-            state: Arc::new(RwLock::new(CircuitBreakerState {
-                failures: 0,
-                last_failure_time: None,
-                state: CircuitState::Closed,
-            })),
-        }
+    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+        self.decorated_tao.get_all_objects_of_type(otype, limit).await
     }
 
-    pub async fn execute<F, T>(&self, operation: F) -> AppResult<T>
-    where
-        F: std::future::Future<Output = AppResult<T>>,
-    {
-        // Check if circuit is open
-        {
-            let state = self.state.read().await;
-            if state.state == CircuitState::Open {
-                if let Some(last_failure) = state.last_failure_time {
-                    if last_failure.elapsed() < self.recovery_timeout {
-                        return Err(AppError::ServiceUnavailable("Circuit breaker is open".to_string()));
-                    }
-                }
-                // Time to try half-open
-                drop(state);
-                let mut state = self.state.write().await;
-                state.state = CircuitState::HalfOpen;
-            }
-        }
+    async fn begin_transaction(&self) -> AppResult<DatabaseTransaction> {
+        self.decorated_tao.begin_transaction().await
+    }
 
-        // Execute operation
-        match operation.await {
-            Ok(result) => {
-                // Reset on success
-                let mut state = self.state.write().await;
-                state.failures = 0;
-                state.state = CircuitState::Closed;
-                Ok(result)
-            }
-            Err(error) => {
-                // Record failure
-                let mut state = self.state.write().await;
-                state.failures += 1;
-                state.last_failure_time = Some(Instant::now());
-                
-                if state.failures >= self.failure_threshold {
-                    state.state = CircuitState::Open;
-                    warn!("Circuit breaker opened after {} failures", state.failures);
-                }
-                
-                Err(error)
-            }
-        }
+    async fn execute_query(&self, query: String) -> AppResult<Vec<HashMap<String, String>>> {
+        self.decorated_tao.execute_query(query).await
+    }
+
+
+    async fn get_graph_data(&self) -> AppResult<(Vec<TaoObject>, Vec<TaoAssociation>)> {
+        self.decorated_tao.get_graph_data().await
     }
 }
 
-/// Factory for creating TAO instances
-pub struct TaoFactory;
+/// TAO Singleton Management for global access
+static TAO_INSTANCE: OnceCell<Arc<Tao>> = OnceCell::new();
 
-impl TaoFactory {
-    /// Create a fully integrated TAO instance with enterprise features
-    pub async fn create_tao(
-        core_tao: Arc<dyn TaoOperations>,
-        config: Option<TaoConfig>,
-    ) -> AppResult<Arc<Tao>> {
-        let config = config.unwrap_or_default();
+/// Initialize the global TAO instance with full decoration
+pub async fn initialize_tao(
+    query_router: Arc<TaoQueryRouter>,
+    association_registry: Arc<AssociationRegistry>,
+    wal: Arc<TaoWriteAheadLog>,
+    cache: Arc<TaoMultiTierCache>,
+    metrics: Arc<MetricsCollector>,
+    enable_caching: bool,
+    enable_circuit_breaker: bool,
+) -> AppResult<()> {
+    // Create the core TAO instance
+    let tao_core = Arc::new(TaoCore::new(query_router, association_registry));
 
-        // Create cache layer
-        let cache_config = CacheConfig {
-            l1_default_ttl: config.cache_object_ttl,
-            l2_default_ttl: config.cache_association_ttl,
-            ..Default::default()
-        };
-        let cache = Arc::new(TaoMultiTierCache::new(cache_config));
+    // Wrap with decorators
+    let tao = Tao::new(tao_core, wal, cache, metrics, enable_caching, enable_circuit_breaker);
 
-        // Create security service
-        let security_config = crate::infrastructure::security::SecurityConfig::default();
-        let security = Arc::new(SecurityService::new(security_config));
+    TAO_INSTANCE.set(Arc::new(tao)).map_err(|_| {
+        AppError::Internal("TAO instance already initialized".to_string())
+    })?;
 
-        // Create monitoring system
-        let metrics = crate::infrastructure::monitoring::initialize_monitoring()?;
-
-        // Create replication manager
-        let replication_config = crate::infrastructure::replication::ReplicationConfig::default();
-        let replication = Arc::new(ReplicationManager::new("node-1".to_string(), replication_config));
-
-        let tao = Tao::new(
-            core_tao,
-            cache,
-            security,
-            metrics,
-            replication,
-            config,
-        );
-
-        info!("🚀 TAO instance created with enterprise features (cache, security, monitoring)");
-        Ok(Arc::new(tao))
-    }
-}
-
-// === TAO Singleton Management ===
-
-static TAO_INSTANCE: OnceCell<Arc<Tao>> = OnceCell::const_new();
-
-/// Initialize the global TAO instance (developer-facing)
-pub async fn initialize_tao(core_tao: Arc<dyn TaoOperations>) -> AppResult<()> {
-    let tao = TaoFactory::create_tao(core_tao, None).await?;
-    
-    TAO_INSTANCE.set(tao)
-        .map_err(|_| crate::error::AppError::Internal("TAO instance already initialized".to_string()))?;
-
-    println!("✅ TAO initialized (developer interface with enterprise features)");
+    println!("✅ TAO initialized with decorator chain: CircuitBreaker -> Metrics -> WAL -> Cache -> BaseTao -> TaoCore");
     Ok(())
 }
 
-/// Initialize the global TAO instance with custom config
-pub async fn initialize_tao_with_config(core_tao: Arc<dyn TaoOperations>, config: TaoConfig) -> AppResult<()> {
-    let tao = TaoFactory::create_tao(core_tao, Some(config)).await?;
-    
-    TAO_INSTANCE.set(tao)
-        .map_err(|_| crate::error::AppError::Internal("TAO instance already initialized".to_string()))?;
+/// Initialize a minimal TAO instance (for testing or simple use cases)
+pub async fn initialize_tao_minimal(
+    query_router: Arc<TaoQueryRouter>,
+    association_registry: Arc<AssociationRegistry>,
+) -> AppResult<()> {
+    let tao_core = Arc::new(TaoCore::new(query_router, association_registry));
+    let tao = Tao::minimal(tao_core);
 
-    println!("✅ TAO initialized with custom config (developer interface with enterprise features)");
+    TAO_INSTANCE.set(Arc::new(tao)).map_err(|_| {
+        AppError::Internal("TAO instance already initialized".to_string())
+    })?;
+
+    println!("✅ TAO initialized (minimal mode)");
     Ok(())
 }
 
-/// Get the global TAO instance (developer-facing)
+/// Get the global TAO instance (lock-free, thread-safe)
 pub async fn get_tao() -> AppResult<Arc<Tao>> {
-    TAO_INSTANCE.get()
-        .ok_or_else(|| crate::error::AppError::Internal("TAO instance not initialized. Call initialize_tao() first.".to_string()))
+    TAO_INSTANCE
+        .get()
+        .ok_or_else(|| {
+            AppError::Internal(
+                "TAO instance not initialized. Call initialize_tao() first.".to_string(),
+            )
+        })
         .map(|tao| tao.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infrastructure::{
+        database::initialize_database_default,
+        query_router::QueryRouterConfig,
+        cache_layer::initialize_cache_default,
+        monitoring::initialize_metrics_default,
+    };
+
+    async fn setup_minimal_tao() -> Arc<Tao> {
+        // Initialize a dummy database for testing
+        initialize_database_default().await.unwrap();
+        let query_router = Arc::new(TaoQueryRouter::new(QueryRouterConfig::default()).await);
+        let association_registry = Arc::new(AssociationRegistry::new());
+        let tao_core = Arc::new(TaoCore::new(query_router, association_registry));
+        Arc::new(Tao::minimal(tao_core))
+    }
+
+    #[tokio::test]
+    async fn test_obj_add_get() {
+        let tao = setup_minimal_tao().await;
+        let user_data = serde_json::json!({"name": "Test User", "email": "test@example.com"}).to_string().into_bytes();
+        let user_id = tao.obj_add("user".to_string(), user_data.clone(), None).await.unwrap();
+
+        let fetched_user = tao.obj_get(user_id).await.unwrap().unwrap();
+        assert_eq!(fetched_user.id, user_id);
+        assert_eq!(fetched_user.otype, "user");
+        assert_eq!(fetched_user.data, user_data);
+    }
+
+    #[tokio::test]
+    async fn test_decorated_tao_initialization() {
+        initialize_database_default().await.unwrap();
+        let query_router = Arc::new(TaoQueryRouter::new(QueryRouterConfig::default()).await);
+        let association_registry = Arc::new(AssociationRegistry::new());
+        let tao_core = Arc::new(TaoCore::new(query_router, association_registry));
+
+        // Create WAL with default config
+        let wal_config = WalConfig::default();
+        let wal = Arc::new(TaoWriteAheadLog::new(wal_config, "/tmp/test_wal").await.unwrap());
+        let cache = initialize_cache_default().await.unwrap();
+        let metrics = initialize_metrics_default().await.unwrap();
+
+        let tao = Tao::new(tao_core, wal, cache, metrics, true, true);
+
+        // Test basic operations work through the decorator chain
+        let user_data = b"test user".to_vec();
+        let user_id = tao.obj_add("user".to_string(), user_data.clone(), None).await.unwrap();
+        let fetched_user = tao.obj_get(user_id).await.unwrap().unwrap();
+        assert_eq!(fetched_user.data, user_data);
+    }
+
+    #[tokio::test]
+    async fn test_assoc_operations() {
+        let tao = setup_minimal_tao().await;
+        let user1_id = tao.obj_add("user".to_string(), b"{}".to_vec(), None).await.unwrap();
+        let user2_id = tao.obj_add("user".to_string(), b"{}".to_vec(), None).await.unwrap();
+
+        let assoc = create_tao_association(user1_id, "friend".to_string(), user2_id, None);
+        tao.assoc_add(assoc.clone()).await.unwrap();
+
+        let fetched_assocs = tao.assoc_get(AssocQuery {
+            id1: user1_id,
+            atype: "friend".to_string(),
+            id2_set: None,
+            high_time: None,
+            low_time: None,
+            limit: None,
+            offset: None,
+        }).await.unwrap();
+        assert_eq!(fetched_assocs.len(), 1);
+        assert_eq!(fetched_assocs[0].id2, user2_id);
+
+        let count = tao.assoc_count(user1_id, "friend".to_string()).await.unwrap();
+        assert_eq!(count, 1);
+    }
 }

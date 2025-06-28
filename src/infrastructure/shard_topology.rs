@@ -1,8 +1,13 @@
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
-use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{error, info, warn};
+
+use crate::error::{AppError, AppResult};
 
 pub type ShardId = u16;
 
@@ -49,16 +54,19 @@ impl ConsistentHashRing {
     /// Add a shard to the hash ring
     pub fn add_shard(&mut self, shard_info: ShardInfo) {
         let shard_id = shard_info.shard_id;
-        
+
         // Add virtual nodes for this shard to improve distribution
         for i in 0..self.virtual_nodes_per_shard {
             let virtual_key = format!("shard_{}_vnode_{}", shard_id, i);
             let hash_value = self.hash_key(&virtual_key);
             self.ring.insert(hash_value, shard_id);
         }
-        
+
         self.shards.insert(shard_id, shard_info);
-        info!("Added shard {} to hash ring with {} virtual nodes", shard_id, self.virtual_nodes_per_shard);
+        info!(
+            "Added shard {} to hash ring with {} virtual nodes",
+            shard_id, self.virtual_nodes_per_shard
+        );
     }
 
     /// Remove a shard from the hash ring (e.g., during maintenance)
@@ -76,7 +84,7 @@ impl ConsistentHashRing {
         }
 
         let hash_value = self.hash_key_bytes(key);
-        
+
         // Find the first shard at or after this hash value
         if let Some((&_, &shard_id)) = self.ring.range(hash_value..).next() {
             Some(shard_id)
@@ -88,25 +96,28 @@ impl ConsistentHashRing {
 
     /// Get replica shards for fault tolerance
     pub fn get_replica_shards(&self, primary_shard: ShardId, replica_count: usize) -> Vec<ShardId> {
-        if replica_count == 0 {
+        if replica_count == 0 || self.shards.len() <= 1 {
             return vec![];
         }
 
-        let mut replicas = Vec::new();
+        let mut replicas = std::collections::HashSet::new();
         let shard_ids: Vec<ShardId> = self.shards.keys().copied().collect();
-        
+
         if let Some(primary_index) = shard_ids.iter().position(|&id| id == primary_shard) {
-            for i in 1..=replica_count {
+            for i in 1..shard_ids.len() {
+                if replicas.len() >= replica_count {
+                    break;
+                }
                 let replica_index = (primary_index + i) % shard_ids.len();
                 if let Some(&replica_shard) = shard_ids.get(replica_index) {
                     if replica_shard != primary_shard {
-                        replicas.push(replica_shard);
+                        replicas.insert(replica_shard);
                     }
                 }
             }
         }
 
-        replicas
+        replicas.into_iter().collect()
     }
 
     /// Get healthy shards only
@@ -123,12 +134,16 @@ impl ConsistentHashRing {
         if let Some(shard_info) = self.shards.get_mut(&shard_id) {
             let old_health = shard_info.health;
             shard_info.health = health;
-            shard_info.last_health_check = crate::infrastructure::tao::current_time_millis();
-            
-            info!("Shard {} health changed: {:?} -> {:?}", shard_id, old_health, health);
-            
+            shard_info.last_health_check = crate::infrastructure::tao_core::current_time_millis();
+
+            info!(
+                "Shard {} health changed: {:?} -> {:?}",
+                shard_id, old_health, health
+            );
+
             // If shard became unhealthy, log warning
-            if matches!(old_health, ShardHealth::Healthy) && !matches!(health, ShardHealth::Healthy) {
+            if matches!(old_health, ShardHealth::Healthy) && !matches!(health, ShardHealth::Healthy)
+            {
                 warn!("Shard {} is now unhealthy: {:?}", shard_id, health);
             }
         }
@@ -185,10 +200,10 @@ impl ShardTopology {
         // Hash the owner_id to determine shard placement
         let owner_key = owner_id.to_be_bytes(); // Big-endian for consistent hashing
         let shard_id = self.hash_ring.get_shard(&owner_key)?;
-        
+
         // Cache the result
         self.owner_shard_cache.put(owner_id, shard_id);
-        
+
         Some(shard_id)
     }
 
@@ -201,7 +216,8 @@ impl ShardTopology {
 
     /// Get replicas for fault tolerance
     pub fn get_replica_shards(&self, primary_shard: ShardId) -> Vec<ShardId> {
-        self.hash_ring.get_replica_shards(primary_shard, self.replication_factor)
+        self.hash_ring
+            .get_replica_shards(primary_shard, self.replication_factor)
     }
 
     /// Add a new shard to the topology
@@ -222,7 +238,7 @@ impl ShardTopology {
     /// Update shard health and handle failures
     pub fn update_shard_health(&mut self, shard_id: ShardId, health: ShardHealth) {
         self.hash_ring.update_shard_health(shard_id, health);
-        
+
         // If shard failed, we might need to redirect traffic
         if matches!(health, ShardHealth::Failed) {
             self.handle_shard_failure(shard_id);
@@ -232,18 +248,24 @@ impl ShardTopology {
     /// Handle shard failures by redirecting to replicas
     fn handle_shard_failure(&mut self, failed_shard: ShardId) {
         error!("Handling failure of shard {}", failed_shard);
-        
+
         // In a real system, this would:
         // 1. Redirect reads to replica shards
         // 2. Queue writes for when shard recovers
         // 3. Trigger alerting/monitoring
         // 4. Potentially initiate shard recovery
-        
+
         let replicas = self.get_replica_shards(failed_shard);
         if replicas.is_empty() {
-            error!("CRITICAL: Shard {} failed with no available replicas!", failed_shard);
+            error!(
+                "CRITICAL: Shard {} failed with no available replicas!",
+                failed_shard
+            );
         } else {
-            info!("Shard {} failure - traffic can be redirected to replicas: {:?}", failed_shard, replicas);
+            info!(
+                "Shard {} failure - traffic can be redirected to replicas: {:?}",
+                failed_shard, replicas
+            );
         }
     }
 
@@ -273,6 +295,63 @@ impl ShardTopology {
     }
 }
 
+/// Trait for managing shard topology and routing
+#[async_trait]
+pub trait ShardManager {
+    async fn get_shard_for_owner(&self, owner_id: i64) -> AppResult<ShardId>;
+    async fn get_shard_for_object(&self, object_id: i64) -> ShardId;
+    async fn get_shard_info(&self, shard_id: ShardId) -> Option<ShardInfo>;
+    async fn add_shard(&self, shard_info: ShardInfo);
+    async fn remove_shard(&self, shard_id: ShardId);
+    async fn get_healthy_shards(&self) -> Vec<ShardId>;
+}
+
+/// Implementation of ShardManager using consistent hashing
+pub struct ConsistentHashingShardManager {
+    topology: Arc<RwLock<ShardTopology>>,
+}
+
+impl ConsistentHashingShardManager {
+    pub fn new(topology: Arc<RwLock<ShardTopology>>) -> Self {
+        Self { topology }
+    }
+}
+
+#[async_trait]
+impl ShardManager for ConsistentHashingShardManager {
+    async fn get_shard_for_owner(&self, owner_id: i64) -> AppResult<ShardId> {
+        let mut topology = self.topology.write().await;
+        topology
+            .get_shard_for_owner(owner_id)
+            .ok_or_else(|| AppError::Validation("No healthy shards available".to_string()))
+    }
+
+    async fn get_shard_for_object(&self, object_id: i64) -> ShardId {
+        let topology = self.topology.read().await;
+        topology.get_shard_for_object(object_id)
+    }
+
+    async fn get_shard_info(&self, shard_id: ShardId) -> Option<ShardInfo> {
+        let topology = self.topology.read().await;
+        topology.get_shard_info(shard_id).cloned()
+    }
+
+    async fn add_shard(&self, shard_info: ShardInfo) {
+        let mut topology = self.topology.write().await;
+        topology.add_shard(shard_info);
+    }
+
+    async fn remove_shard(&self, shard_id: ShardId) {
+        let mut topology = self.topology.write().await;
+        topology.remove_shard(shard_id);
+    }
+
+    async fn get_healthy_shards(&self) -> Vec<ShardId> {
+        let topology = self.topology.read().await;
+        topology.get_healthy_shards()
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct TopologyStats {
     pub total_shards: usize,
@@ -289,7 +368,7 @@ mod tests {
     #[test]
     fn test_consistent_hashing() {
         let mut ring = ConsistentHashRing::new(100);
-        
+
         // Add some shards
         for i in 0..5 {
             let shard_info = ShardInfo {
@@ -328,7 +407,7 @@ mod tests {
     #[test]
     fn test_shard_topology() {
         let mut topology = ShardTopology::new(2);
-        
+
         // Add test shards
         for i in 0..3 {
             let shard_info = ShardInfo {

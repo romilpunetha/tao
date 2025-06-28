@@ -1,4 +1,5 @@
 use serde::Serialize;
+use rand;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -8,7 +9,8 @@ use crate::error::{AppError, AppResult};
 use crate::infrastructure::shard_topology::{
     ConsistentHashingShardManager, ShardHealth, ShardId, ShardInfo, ShardManager, ShardTopology,
 };
-use crate::infrastructure::write_ahead_log::TaoOperation;
+use crate::infrastructure::id_generator::{TaoIdGenerator, get_id_generator};
+use crate::infrastructure::tao_core::TaoId;
 
 /// Information about a specific shard (no operations, just metadata)
 #[derive(Debug, Clone)]
@@ -125,6 +127,31 @@ impl TaoQueryRouter {
         })
     }
 
+    /// Generate a new TAO ID with proper shard placement
+    /// If owner_id is provided, colocate with the owner; otherwise assign random shard
+    pub async fn generate_tao_id(&self, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+        if let Some(owner_id) = owner_id {
+            // Extract shard from owner_id for colocation
+            let owner_shard_id = TaoIdGenerator::extract_shard_id(owner_id);
+            let id_generator = TaoIdGenerator::new(owner_shard_id);
+            Ok(id_generator.next_id())
+        } else {
+            // No owner - assign random shard
+            let available_shards = self.shard_manager.get_healthy_shards().await;
+            if available_shards.is_empty() {
+                return Err(AppError::ShardError("No healthy shards available".to_string()));
+            }
+
+            // Pick a random shard
+            use rand::Rng;
+            let mut rng = rand::rng();
+            let random_index = rng.random_range(0..available_shards.len());
+            let random_shard_id = available_shards[random_index];
+            let id_generator = TaoIdGenerator::new(random_shard_id);
+            Ok(id_generator.next_id())
+        }
+    }
+
     /// Get database instance for an object (convenience method)
     pub async fn get_database_for_object(
         &self,
@@ -153,37 +180,16 @@ impl TaoQueryRouter {
     /// EXECUTION METHODS - Executes operations on their respective shards
     /// =========================================================================
 
-    /// Execute operations for a specific shard only
-    /// This is used by the Tao orchestrator to execute operations on the correct shard
-    pub async fn execute_operations_for_shard(
-        &self,
-        shard_id: ShardId,
-        operations: &[&TaoOperation],
-    ) -> AppResult<()> {
-        // Get the database for this shard
-        let db = match self.get_database_for_shard(shard_id).await {
-            Ok(db) => db,
-            Err(e) => {
-                error!("Cannot get database for shard {}: {}", shard_id, e);
-                return Err(e);
-            }
-        };
-
-        // Execute each operation on this shard
-        for op in operations {
-            if let Err(e) = db.execute_operation(*op).await {
-                error!("Failed to execute operation on shard {}: {}", shard_id, e);
-                return Err(e);
-            }
-        }
-
-        debug!(
-            "Successfully executed {} operations on shard {}",
-            operations.len(),
-            shard_id
-        );
-        Ok(())
-    }
+    // /// Execute operations for a specific shard only
+    // /// This is used by the Tao orchestrator to execute operations on the correct shard
+    // pub async fn execute_operations_for_shard(
+    //     &self,
+    //     shard_id: ShardId,
+    //     operations: &[TaoOperation],
+    // ) -> AppResult<()> {
+    //     // Temporarily disabled
+    //     todo!("Transaction operations temporarily disabled")
+    // }
 
     /// Get router statistics
     pub async fn get_stats(&self) -> QueryRouterStats {

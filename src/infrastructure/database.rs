@@ -6,10 +6,13 @@ use crate::infrastructure::tao_core::{
     AssocQuery, AssocType, ObjectQuery, TaoAssociation, TaoId, TaoObject, TaoType,
 };
 use async_trait::async_trait;
-use sqlx::{Column, PgPool, Postgres, Row, Transaction, ValueRef};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
+
+use sqlx::{Column, Row, Transaction, ValueRef};
+use sqlx::postgres::{PgPool, Postgres};
+use sqlx::sqlite::Sqlite; // Added Sqlite for generic DatabaseTransaction
 
 /// Association query result with pagination
 #[derive(Debug, Clone)]
@@ -25,30 +28,67 @@ pub struct TaoObjectQueryResult {
     pub next_cursor: Option<String>,
 }
 
-/// Transaction wrapper for database operations
-pub struct DatabaseTransaction<'a> {
-    tx: Transaction<'a, Postgres>,
+/// Unified transaction wrapper for database operations
+pub enum DatabaseTransaction {
+    Postgres(Transaction<'static, Postgres>),
+    Sqlite(Transaction<'static, Sqlite>),
 }
 
-impl<'a> DatabaseTransaction<'a> {
-    pub fn new(tx: Transaction<'a, Postgres>) -> Self {
-        Self { tx }
+impl DatabaseTransaction {
+    pub fn new_postgres(tx: Transaction<'static, Postgres>) -> Self {
+        Self::Postgres(tx)
+    }
+
+    pub fn new_sqlite(tx: Transaction<'static, Sqlite>) -> Self {
+        Self::Sqlite(tx)
     }
 
     /// Commit the transaction
     pub async fn commit(self) -> AppResult<()> {
-        self.tx
-            .commit()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to commit transaction: {}", e)))
+        match self {
+            DatabaseTransaction::Postgres(tx) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Failed to commit postgres transaction: {}", e)))
+            }
+            DatabaseTransaction::Sqlite(tx) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Failed to commit sqlite transaction: {}", e)))
+            }
+        }
     }
 
     /// Rollback the transaction
     pub async fn rollback(self) -> AppResult<()> {
-        self.tx
-            .rollback()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to rollback transaction: {}", e)))
+        match self {
+            DatabaseTransaction::Postgres(tx) => {
+                tx.rollback()
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Failed to rollback postgres transaction: {}", e)))
+            }
+            DatabaseTransaction::Sqlite(tx) => {
+                tx.rollback()
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Failed to rollback sqlite transaction: {}", e)))
+            }
+        }
+    }
+
+    /// Get mutable reference to the underlying transaction for PostgreSQL
+    pub fn as_postgres_mut(&mut self) -> AppResult<&mut Transaction<'static, Postgres>> {
+        match self {
+            DatabaseTransaction::Postgres(tx) => Ok(tx),
+            DatabaseTransaction::Sqlite(_) => Err(AppError::DatabaseError("Transaction is not PostgreSQL".to_string())),
+        }
+    }
+
+    /// Get mutable reference to the underlying transaction for SQLite
+    pub fn as_sqlite_mut(&mut self) -> AppResult<&mut Transaction<'static, Sqlite>> {
+        match self {
+            DatabaseTransaction::Sqlite(tx) => Ok(tx),
+            DatabaseTransaction::Postgres(_) => Err(AppError::DatabaseError("Transaction is not SQLite".to_string())),
+        }
     }
 }
 
@@ -61,15 +101,10 @@ pub trait DatabaseInterface: Send + Sync {
     // Transaction management
     async fn begin_transaction(&self) -> AppResult<DatabaseTransaction>;
 
-    /// Execute a single TAO operation (used by Query Router)
-    async fn execute_operation(
-        &self,
-        operation: &crate::infrastructure::write_ahead_log::TaoOperation,
-    ) -> AppResult<()>;
-
     // Object operations - Direct DB queries for entity table
     async fn get_object(&self, id: TaoId) -> AppResult<Option<TaoObject>>;
     async fn get_objects(&self, query: ObjectQuery) -> AppResult<TaoObjectQueryResult>;
+    /// Create object with pre-generated TAO ID
     async fn create_object(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<()>;
     async fn update_object(&self, id: TaoId, data: Vec<u8>) -> AppResult<()>;
     async fn delete_object(&self, id: TaoId) -> AppResult<bool>;
@@ -78,8 +113,12 @@ pub trait DatabaseInterface: Send + Sync {
     // Association operations - Direct DB queries for association table
     async fn get_associations(&self, query: AssocQuery) -> AppResult<TaoAssocQueryResult>;
     async fn create_association(&self, assoc: TaoAssociation) -> AppResult<()>;
-    async fn delete_association(&self, id1: TaoId, &atype: AssocType, id2: TaoId)
-        -> AppResult<bool>;
+    async fn delete_association(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        id2: TaoId,
+    ) -> AppResult<bool>;
     async fn association_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId)
         -> AppResult<bool>;
     async fn count_associations(&self, id1: TaoId, atype: AssocType) -> AppResult<u64>;
@@ -96,26 +135,26 @@ pub trait DatabaseInterface: Send + Sync {
     // Transactional operations - Execute within existing transaction
     async fn create_object_tx(
         &self,
-        tx: &mut DatabaseTransaction<'_>,
+        tx: &mut DatabaseTransaction,
         id: TaoId,
         otype: TaoType,
         data: Vec<u8>,
     ) -> AppResult<()>;
     async fn create_association_tx(
         &self,
-        tx: &mut DatabaseTransaction<'_>,
+        tx: &mut DatabaseTransaction,
         assoc: TaoAssociation,
     ) -> AppResult<()>;
     async fn delete_association_tx(
         &self,
-        tx: &mut DatabaseTransaction<'_>,
+        tx: &mut DatabaseTransaction,
         id1: TaoId,
         atype: AssocType,
         id2: TaoId,
     ) -> AppResult<bool>;
     async fn update_association_count_tx(
         &self,
-        tx: &mut DatabaseTransaction<'_>,
+        tx: &mut DatabaseTransaction,
         id: TaoId,
         atype: AssocType,
         delta: i64,
@@ -123,6 +162,12 @@ pub trait DatabaseInterface: Send + Sync {
 
     /// Execute a raw SQL query and return results as a vector of hashmaps
     async fn execute_query(&self, query: String) -> AppResult<Vec<HashMap<String, String>>>;
+
+    // Graph visualization methods
+    /// Get all objects from this shard for graph visualization
+    async fn get_all_objects_from_shard(&self) -> AppResult<Vec<TaoObject>>;
+    /// Get all associations from this shard for graph visualization
+    async fn get_all_associations_from_shard(&self) -> AppResult<Vec<TaoAssociation>>;
 }
 
 /// PostgreSQL implementation of database interface
@@ -151,9 +196,22 @@ impl PostgresDatabase {
 
     /// Initialize TAO database tables with date partitioning and ID sharding
     pub async fn initialize(&self) -> AppResult<()> {
-        sqlx::query("DROP TABLE IF EXISTS tao_objects CASCADE").execute(&self.pool).await.map_err(|e| AppError::DatabaseError(format!("Failed to drop objects table: {}", e)))?;
-        sqlx::query("DROP TABLE IF EXISTS tao_associations CASCADE").execute(&self.pool).await.map_err(|e| AppError::DatabaseError(format!("Failed to drop associations table: {}", e)))?;
-        sqlx::query("DROP TABLE IF EXISTS tao_association_counts CASCADE").execute(&self.pool).await.map_err(|e| AppError::DatabaseError(format!("Failed to drop association counts table: {}", e)))?;
+        sqlx::query("DROP TABLE IF EXISTS tao_objects CASCADE")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to drop objects table: {}", e)))?;
+        sqlx::query("DROP TABLE IF EXISTS tao_associations CASCADE")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to drop associations table: {}", e))
+            })?;
+        sqlx::query("DROP TABLE IF EXISTS tao_association_counts CASCADE")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to drop association counts table: {}", e))
+            })?;
 
         // Create objects table partitioned by date (time_created)
         sqlx::query(
@@ -165,7 +223,6 @@ impl PostgresDatabase {
                 time_updated BIGINT NOT NULL,
                 data BYTEA,
                 version INTEGER DEFAULT 1,
-                shard_id INTEGER NOT NULL,
                 PRIMARY KEY (id, time_created)
             ) PARTITION BY RANGE (time_created)
         "#,
@@ -183,7 +240,6 @@ impl PostgresDatabase {
                 id2 BIGINT NOT NULL,
                 time_created BIGINT NOT NULL,
                 data BYTEA,
-                shard_id INTEGER NOT NULL,
                 PRIMARY KEY (id1, atype, id2, time_created)
             ) PARTITION BY RANGE (time_created)
         "#,
@@ -194,7 +250,7 @@ impl PostgresDatabase {
             AppError::DatabaseError(format!("Failed to create associations table: {}", e))
         })?;
 
-        // Create association count index table partitioned by date (updated_time)
+        // Create association count index table
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS tao_association_counts (
@@ -202,7 +258,6 @@ impl PostgresDatabase {
                 atype VARCHAR(64) NOT NULL,
                 count BIGINT DEFAULT 0,
                 updated_time BIGINT NOT NULL,
-                shard_id INTEGER NOT NULL,
                 PRIMARY KEY (id, atype)
             )
         "#,
@@ -214,7 +269,7 @@ impl PostgresDatabase {
         })?;
 
         // Create monthly partitions for current and next 12 months
-        let current_time = crate::infrastructure::tao::current_time_millis();
+        let current_time = crate::infrastructure::tao_core::current_time_millis();
         let current_month_start =
             (current_time / (30 * 24 * 60 * 60 * 1000)) * (30 * 24 * 60 * 60 * 1000); // Rough monthly boundaries
 
@@ -250,13 +305,6 @@ impl PostgresDatabase {
                 AppError::DatabaseError(format!("Failed to create objects otype index: {}", e))
             })?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_tao_objects_shard ON tao_objects(shard_id)")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                AppError::DatabaseError(format!("Failed to create objects shard index: {}", e))
-            })?;
-
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_tao_assoc_id1_atype ON tao_associations(id1, atype, time_created)")
             .execute(&self.pool)
             .await
@@ -267,26 +315,7 @@ impl PostgresDatabase {
             .await
             .map_err(|e| AppError::DatabaseError(format!("Failed to create reverse associations index: {}", e)))?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_tao_assoc_shard ON tao_associations(shard_id)")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                AppError::DatabaseError(format!("Failed to create associations shard index: {}", e))
-            })?;
-
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_tao_counts_shard ON tao_association_counts(shard_id)",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| {
-            AppError::DatabaseError(format!(
-                "Failed to create association counts shard index: {}",
-                e
-            ))
-        })?;
-
-        println!("✅ TAO database tables initialized with date partitioning (monthly) and ID-based sharding (4 shards)");
+        println!("✅ TAO database tables initialized with date partitioning (monthly)");
         Ok(())
     }
 }
@@ -295,53 +324,6 @@ impl PostgresDatabase {
 impl DatabaseInterface for PostgresDatabase {
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-
-    async fn execute_operation(
-        &self,
-        operation: &crate::infrastructure::write_ahead_log::TaoOperation,
-    ) -> AppResult<()> {
-        match operation {
-            crate::infrastructure::write_ahead_log::TaoOperation::InsertObject {
-                object_id,
-                object_type,
-                data,
-                ..
-            } => {
-                let object = TaoObject {
-                    id: *object_id,
-                    otype: object_type.clone(),
-                    data: data.clone(),
-                    created_time: crate::infrastructure::tao::current_time_millis(),
-                    updated_time: crate::infrastructure::tao::current_time_millis(),
-                    version: 1,
-                };
-                self.create_object(object.id, object.otype, object.data)
-                    .await
-            }
-            crate::infrastructure::write_ahead_log::TaoOperation::InsertAssociation {
-                assoc,
-                ..
-            } => self.create_association(assoc.clone()).await,
-            crate::infrastructure::write_ahead_log::TaoOperation::DeleteAssociation {
-                id1,
-                atype,
-                id2,
-                ..
-            } => self
-                .delete_association(*id1, atype.clone(), *id2)
-                .await
-                .map(|_| ()),
-            crate::infrastructure::write_ahead_log::TaoOperation::UpdateObject {
-                object_id,
-                data,
-                ..
-            } => self.update_object(*object_id, data.clone()).await,
-            crate::infrastructure::write_ahead_log::TaoOperation::DeleteObject {
-                object_id,
-                ..
-            } => self.delete_object(*object_id).await.map(|_| ()),
-        }
     }
 
     async fn execute_query(&self, query: String) -> AppResult<Vec<HashMap<String, String>>> {
@@ -381,8 +363,9 @@ impl DatabaseInterface for PostgresDatabase {
             self.pool.begin().await.map_err(|e| {
                 AppError::DatabaseError(format!("Failed to begin transaction: {}", e))
             })?;
-        Ok(DatabaseTransaction::new(tx))
+        Ok(DatabaseTransaction::new_postgres(tx))
     }
+
     async fn get_object(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
         let row = sqlx::query(
             "SELECT id, otype, time_created, time_updated, data FROM tao_objects WHERE id = $1",
@@ -399,7 +382,7 @@ impl DatabaseInterface for PostgresDatabase {
                 data: row.get("data"),
                 created_time: row.get("time_created"),
                 updated_time: row.get("time_updated"),
-                version: row.get::<i32, _>("version") as u64,
+                version: row.try_get::<i32, _>("version").unwrap_or(1) as u64,
             }))
         } else {
             Ok(None)
@@ -434,7 +417,7 @@ impl DatabaseInterface for PostgresDatabase {
                 data: row.get("data"),
                 created_time: row.get("time_created"),
                 updated_time: row.get("time_updated"),
-                version: row.get::<i32, _>("version") as u64,
+                version: row.try_get::<i32, _>("version").unwrap_or(1) as u64,
             })
             .collect();
 
@@ -445,18 +428,16 @@ impl DatabaseInterface for PostgresDatabase {
     }
 
     async fn create_object(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<()> {
-        let now = crate::infrastructure::tao::current_time_millis();
-        let shard_id = (id % 3 + 1) as i32; // Calculate shard_id (1-indexed for 3 shards)
+        let now = crate::infrastructure::tao_core::current_time_millis();
 
         sqlx::query(
-            "INSERT INTO tao_objects (id, otype, time_created, time_updated, data, shard_id) VALUES ($1, $2, $3, $4, $5, $6)"
+            "INSERT INTO tao_objects (id, otype, time_created, time_updated, data) VALUES ($1, $2, $3, $4, $5)"
         )
         .bind(id)
         .bind(&otype)
         .bind(now)
         .bind(now)
         .bind(&data)
-        .bind(shard_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create object with ID {}: {}", id, e)))?;
@@ -465,7 +446,7 @@ impl DatabaseInterface for PostgresDatabase {
     }
 
     async fn update_object(&self, id: TaoId, data: Vec<u8>) -> AppResult<()> {
-        let now = crate::infrastructure::tao::current_time_millis();
+        let now = crate::infrastructure::tao_core::current_time_millis();
 
         let result = sqlx::query(
             "UPDATE tao_objects SET data = $1, time_updated = $2, version = version + 1 WHERE id = $3"
@@ -497,13 +478,15 @@ impl DatabaseInterface for PostgresDatabase {
     }
 
     async fn object_exists(&self, id: TaoId) -> AppResult<bool> {
-        let row = sqlx::query("SELECT 1 FROM tao_objects WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| {
-                AppError::DatabaseError(format!("Failed to check if object {} exists: {}", id, e))
-            })?;
+        let row = sqlx::query(
+            "SELECT 1 FROM tao_objects WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to check association existence: {}", e))
+        })?;
 
         Ok(row.is_some())
     }
@@ -513,7 +496,7 @@ impl DatabaseInterface for PostgresDatabase {
         let mut param_index = 2;
 
         // Add id2_set clause if present
-        if let Some(ref id2_set) = query.id2_set {
+        if let Some(ref _id2_set) = query.id2_set {
             param_index += 1;
             sql.push_str(&format!(" AND id2 = ANY(${})", param_index));
         }
@@ -584,14 +567,13 @@ impl DatabaseInterface for PostgresDatabase {
     async fn create_association(&self, assoc: TaoAssociation) -> AppResult<()> {
         // Insert association
         sqlx::query(
-            "INSERT INTO tao_associations (id1, atype, id2, time_created, data, shard_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"
+            "INSERT INTO tao_associations (id1, atype, id2, time_created, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING"
         )
         .bind(assoc.id1)
         .bind(&assoc.atype)
         .bind(assoc.id2)
         .bind(assoc.time)
         .bind(&assoc.data)
-        .bind((assoc.id1 % 3 + 1) as i32)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create association: {}", e)))?;
@@ -661,17 +643,16 @@ impl DatabaseInterface for PostgresDatabase {
         atype: AssocType,
         delta: i64,
     ) -> AppResult<()> {
-        let now = crate::infrastructure::tao::current_time_millis();
+        let now = crate::infrastructure::tao_core::current_time_millis();
 
         sqlx::query(
-            "INSERT INTO tao_association_counts (id, atype, count, updated_time, shard_id) VALUES ($1, $2, $3, $4, $5)
+            "INSERT INTO tao_association_counts (id, atype, count, updated_time) VALUES ($1, $2, $3, $4)
              ON CONFLICT (id, atype) DO UPDATE SET count = tao_association_counts.count + $3, updated_time = $4"
         )
         .bind(id)
         .bind(&atype)
         .bind(delta)
         .bind(now)
-        .bind((id % 3 + 1) as i32)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to update association count: {}", e)))?;
@@ -701,24 +682,23 @@ impl DatabaseInterface for PostgresDatabase {
     // Transactional operations - Execute within existing transaction
     async fn create_object_tx(
         &self,
-        tx: &mut DatabaseTransaction<'_>,
+        tx: &mut DatabaseTransaction,
         id: TaoId,
         otype: TaoType,
         data: Vec<u8>,
     ) -> AppResult<()> {
-        let now = crate::infrastructure::tao::current_time_millis();
-        let shard_id = (id % 3 + 1) as i32; // Calculate shard_id (1-indexed for 3 shards)
+        let now = crate::infrastructure::tao_core::current_time_millis();
+        let postgres_tx = tx.as_postgres_mut()?;
 
         sqlx::query(
-            "INSERT INTO tao_objects (id, otype, time_created, time_updated, data, shard_id) VALUES ($1, $2, $3, $4, $5, $6)"
+            "INSERT INTO tao_objects (id, otype, time_created, time_updated, data) VALUES ($1, $2, $3, $4, $5)"
         )
         .bind(id)
         .bind(&otype)
         .bind(now)
         .bind(now)
         .bind(&data)
-        .bind(shard_id)
-        .execute(&mut *tx.tx)
+        .execute(&mut **postgres_tx)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create object with ID {} in transaction: {}", id, e)))?;
 
@@ -727,20 +707,21 @@ impl DatabaseInterface for PostgresDatabase {
 
     async fn create_association_tx(
         &self,
-        tx: &mut DatabaseTransaction<'_>,
+        tx: &mut DatabaseTransaction,
         assoc: TaoAssociation,
     ) -> AppResult<()> {
+        let postgres_tx = tx.as_postgres_mut()?;
+
         // Insert association
         sqlx::query(
-            "INSERT INTO tao_associations (id1, atype, id2, time_created, data, shard_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"
+            "INSERT INTO tao_associations (id1, atype, id2, time_created, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING"
         )
         .bind(assoc.id1)
         .bind(&assoc.atype)
         .bind(assoc.id2)
         .bind(assoc.time)
         .bind(&assoc.data)
-        .bind((assoc.id1 % 3 + 1) as i32)
-        .execute(&mut *tx.tx)
+        .execute(&mut **postgres_tx)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create association in transaction: {}", e)))?;
 
@@ -753,17 +734,19 @@ impl DatabaseInterface for PostgresDatabase {
 
     async fn delete_association_tx(
         &self,
-        tx: &mut DatabaseTransaction<'_>,
+        tx: &mut DatabaseTransaction,
         id1: TaoId,
         atype: AssocType,
         id2: TaoId,
     ) -> AppResult<bool> {
+        let postgres_tx = tx.as_postgres_mut()?;
+
         let result =
             sqlx::query("DELETE FROM tao_associations WHERE id1 = $1 AND atype = $2 AND id2 = $3")
                 .bind(id1)
                 .bind(&atype)
                 .bind(id2)
-                .execute(&mut *tx.tx)
+                .execute(&mut **postgres_tx)
                 .await
                 .map_err(|e| {
                     AppError::DatabaseError(format!(
@@ -783,27 +766,72 @@ impl DatabaseInterface for PostgresDatabase {
 
     async fn update_association_count_tx(
         &self,
-        tx: &mut DatabaseTransaction<'_>,
+        tx: &mut DatabaseTransaction,
         id: TaoId,
         atype: AssocType,
         delta: i64,
     ) -> AppResult<()> {
-        let now = crate::infrastructure::tao::current_time_millis();
+        let now = crate::infrastructure::tao_core::current_time_millis();
+        let postgres_tx = tx.as_postgres_mut()?;
 
         sqlx::query(
-            "INSERT INTO tao_association_counts (id, atype, count, updated_time, shard_id) VALUES ($1, $2, $3, $4, $5)
+            "INSERT INTO tao_association_counts (id, atype, count, updated_time) VALUES ($1, $2, $3, $4)
              ON CONFLICT (id, atype) DO UPDATE SET count = tao_association_counts.count + $3, updated_time = $4"
         )
         .bind(id)
         .bind(&atype)
         .bind(delta)
         .bind(now)
-        .bind((id % 3 + 1) as i32)
-        .execute(&mut *tx.tx)
+        .execute(&mut **postgres_tx)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to update association count in transaction: {}", e)))?;
 
         Ok(())
+    }
+
+    async fn get_all_objects_from_shard(&self) -> AppResult<Vec<TaoObject>> {
+        let rows = sqlx::query(
+            "SELECT id, otype, time_created, time_updated, data, version FROM tao_objects ORDER BY id"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to get all objects from shard: {}", e)))?;
+
+        let objects = rows
+            .into_iter()
+            .map(|row| TaoObject {
+                id: row.get("id"),
+                otype: row.get("otype"),
+                data: row.get("data"),
+                created_time: row.get("time_created"),
+                updated_time: row.get("time_updated"),
+                version: row.try_get::<i32, _>("version").unwrap_or(1) as u64,
+            })
+            .collect();
+
+        Ok(objects)
+    }
+
+    async fn get_all_associations_from_shard(&self) -> AppResult<Vec<TaoAssociation>> {
+        let rows = sqlx::query(
+            "SELECT id1, atype, id2, time_created, data FROM tao_associations ORDER BY id1, atype, id2"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to get all associations from shard: {}", e)))?;
+
+        let associations = rows
+            .into_iter()
+            .map(|row| TaoAssociation {
+                id1: row.get("id1"),
+                atype: row.get("atype"),
+                id2: row.get("id2"),
+                time: row.get("time_created"),
+                data: row.get("data"),
+            })
+            .collect();
+
+        Ok(associations)
     }
 }
 

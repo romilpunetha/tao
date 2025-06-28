@@ -153,7 +153,7 @@ export const SocialActions: React.FC<SocialActionsProps> = ({
         label={label}
         onChange={(e) => onChange(e.target.value as number)}
       >
-        {users
+        {(users || [])
           .filter(user => exclude === undefined || user.id !== exclude)
           .map((user) => (
             <MenuItem key={user.id} value={user.id}>

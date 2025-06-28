@@ -13,15 +13,15 @@ use std::sync::Arc;
 pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     /// Entity type name for TAO operations (entity-specific)
     const ENTITY_TYPE: &'static str;
-    
+
     /// Get entity ID (entity-specific implementation)
     fn id(&self) -> i64;
-    
+
     /// Validate entity according to schema constraints (entity-specific implementation)
     fn validate(&self) -> AppResult<Vec<String>>;
-    
+
     // --- Common CRUD Operations (templated for all entities) ---
-    
+
     /// Serialize entity to bytes using Thrift
     fn serialize_to_bytes(&self) -> AppResult<Vec<u8>> {
         use thrift::protocol::TCompactOutputProtocol;
@@ -48,7 +48,7 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
         Self::read_from_in_protocol(&mut protocol)
             .map_err(|e| crate::error::AppError::DeserializationError(e.to_string()))
     }
-    
+
     /// Load entity with nullable ID - returns None if not found (TYPE-SAFE)
     /// Only returns entities of the correct type, ensuring EntUser::gen_nullable(post_id) returns None
     async fn gen_nullable(tao: &Arc<dyn TaoOperations>, entity_id: Option<i64>) -> AppResult<Option<Self>> {
@@ -56,14 +56,11 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
             Some(id) => {
                 // Use type-aware query to ensure we only get entities of the correct type
                 let objects = tao.get_by_id_and_type(vec![id], Self::ENTITY_TYPE.to_string()).await?;
-                
+
                 if let Some(obj) = objects.into_iter().next() {
-                    if let Some(data) = obj.data {
-                        let entity = Self::deserialize_from_bytes(&data)?;
-                        Ok(Some(entity))
-                    } else {
-                        Ok(None)
-                    }
+                    // TaoObject.data is now a Vec<u8>, not Option<Vec<u8>>
+                    let entity = Self::deserialize_from_bytes(&obj.data)?;
+                    Ok(Some(entity))
                 } else {
                     Ok(None) // No entity of this type with this ID
                 }
@@ -71,24 +68,21 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
             None => Ok(None),
         }
     }
-    
+
     /// Load entity with enforcement - errors if not found (TYPE-SAFE)
     /// Only loads entities of the correct type, ensuring type safety across the database layer
     async fn gen_enforce(tao: &Arc<dyn TaoOperations>, entity_id: i64) -> AppResult<Self> {
         // Use type-aware query to ensure we only get entities of the correct type
         let objects = tao.get_by_id_and_type(vec![entity_id], Self::ENTITY_TYPE.to_string()).await?;
-        
+
         if let Some(obj) = objects.into_iter().next() {
-            if let Some(data) = obj.data {
-                Self::deserialize_from_bytes(&data)
-            } else {
-                Err(crate::error::AppError::Validation(format!("Entity {} of type {} has no data", entity_id, Self::ENTITY_TYPE)))
-            }
+            // TaoObject.data is now a Vec<u8>, not Option<Vec<u8>>
+            Self::deserialize_from_bytes(&obj.data)
         } else {
             Err(crate::error::AppError::Validation(format!("Entity {} of type {} not found", entity_id, Self::ENTITY_TYPE)))
         }
     }
-    
+
     /// Update existing entity (TYPE-SAFE)
     /// Only updates entities of the correct type, ensuring type safety
     async fn update(&mut self, tao: &Arc<dyn TaoOperations>) -> AppResult<()> {
@@ -100,7 +94,7 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
         }
 
         let data = self.serialize_to_bytes()?;
-        
+
         // Use type-aware update to ensure we only update entities of the correct type
         let updated = tao.obj_update_by_type(self.id(), Self::ENTITY_TYPE.to_string(), data).await?;
         if !updated {
@@ -108,58 +102,54 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
                 format!("Cannot update: entity {} is not of type {}", self.id(), Self::ENTITY_TYPE)
             ));
         }
-        
+
         Ok(())
     }
-    
+
     /// Delete entity by ID (TYPE-SAFE)
     /// Only deletes entities of the correct type, ensuring EntUser::delete(post_id) returns false
     async fn delete(tao: &Arc<dyn TaoOperations>, entity_id: i64) -> AppResult<bool> {
         // Use type-aware delete to ensure we only delete entities of the correct type
         tao.obj_delete_by_type(entity_id, Self::ENTITY_TYPE.to_string()).await
     }
-    
+
     /// Check if entity exists (TYPE-SAFE)
     /// Only checks for entities of the correct type, ensuring type safety
     async fn exists(tao: &Arc<dyn TaoOperations>, entity_id: i64) -> AppResult<bool> {
         // Use type-aware exists to ensure we only check for entities of the correct type
         tao.obj_exists_by_type(entity_id, Self::ENTITY_TYPE.to_string()).await
     }
-    
+
     /// Batch load multiple entities (TYPE-SAFE)
     /// Efficiently loads multiple entities of the correct type in a single database query
     async fn load_many(tao: &Arc<dyn TaoOperations>, entity_ids: Vec<i64>) -> AppResult<Vec<Option<Self>>> {
         if entity_ids.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         // Use type-aware batch query for efficiency
         let objects = tao.get_by_id_and_type(entity_ids.clone(), Self::ENTITY_TYPE.to_string()).await?;
-        
+
         // Create a map of found objects by ID
         let mut object_map = std::collections::HashMap::new();
         for obj in objects {
             object_map.insert(obj.id, obj);
         }
-        
+
         // Build results in the same order as requested IDs
         let mut results = Vec::with_capacity(entity_ids.len());
-        for id in entity_ids {
-            if let Some(obj) = object_map.get(&id) {
-                if let Some(data) = &obj.data {
-                    let entity = Self::deserialize_from_bytes(data)?;
+        for id in entity_ids {                if let Some(obj) = object_map.get(&id) {
+                    // TaoObject.data is now a Vec<u8>, not Option<Vec<u8>>
+                    let entity = Self::deserialize_from_bytes(&obj.data)?;
                     results.push(Some(entity));
                 } else {
-                    results.push(None);
-                }
-            } else {
-                results.push(None); // No entity of this type with this ID
+                    results.push(None); // No entity of this type with this ID
             }
         }
-        
+
         Ok(results)
     }
-    
+
     /// Get entity type name
     fn entity_type() -> &'static str {
         Self::ENTITY_TYPE

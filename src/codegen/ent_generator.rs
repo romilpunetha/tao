@@ -44,8 +44,7 @@ impl<'a> EntGenerator<'a> {
 use crate::ent_framework::Entity;
 use crate::error::AppResult;
 use super::entity::{};
-use regex;
-use crate::infrastructure::TaoOperations;
+use crate::infrastructure::tao_core::TaoOperations;
 "#, struct_name);
 
         // Add cross-entity imports for edge traversal, excluding current entity to avoid duplicates
@@ -215,12 +214,18 @@ use crate::infrastructure::TaoOperations;
                 // Generate get method with real TAO implementation
                 edge_methods.push_str(&format!("    /// Get {} via TAO edge traversal\n", edge.name.replace('_', " ")));
                 edge_methods.push_str(&format!("    pub async fn {}(&self) -> AppResult<Vec<{}>> {{\n", method_name, return_type));
-                edge_methods.push_str("        let tao = crate::infrastructure::tao_core::get_tao_core().await?;\n");
-                edge_methods.push_str(&format!("        let neighbor_ids = tao.get_neighbor_ids(self.id(), \"{}\".to_string(), Some(100)).await?;\n", edge.name));
-                edge_methods.push_str("        \n");
-                edge_methods.push_str("        let mut results = Vec::new();\n");
-                edge_methods.push_str("        for id in neighbor_ids {\n");
-                edge_methods.push_str(&format!("            if let Some(entity) = {}::gen_nullable(&tao, Some(id)).await? {{\n", return_type));
+                edge_methods.push_str("        let tao = crate::infrastructure::tao::get_tao().await?;
+");
+                edge_methods.push_str(&format!("        let neighbor_ids = tao.get_neighbor_ids(self.id(), \"{}\".to_string(), Some(100)).await?;
+", edge.name));
+                edge_methods.push_str("        
+");
+                edge_methods.push_str("        let mut results = Vec::new();
+");
+                edge_methods.push_str("        for id in neighbor_ids {
+");
+                edge_methods.push_str(&format!("            if let Some(entity) = {}::gen_nullable(&(tao.clone() as Arc<dyn TaoOperations>), Some(id)).await? {{
+", return_type));
                 edge_methods.push_str("                results.push(entity);\n");
                 edge_methods.push_str("            }\n");
                 edge_methods.push_str("        }\n");
@@ -233,7 +238,8 @@ use crate::infrastructure::TaoOperations;
                 let count_method = format!("count_{}", edge.name);
                 edge_methods.push_str(&format!("    /// Count {} via TAO edge traversal\n", edge.name.replace('_', " ")));
                 edge_methods.push_str(&format!("    pub async fn {}(&self) -> AppResult<i64> {{\n", count_method));
-                edge_methods.push_str("        let tao = crate::infrastructure::tao_core::get_tao_core().await?;\n");
+                edge_methods.push_str("        let tao = crate::infrastructure::tao::get_tao().await?;
+");
                 edge_methods.push_str(&format!("        let count = tao.assoc_count(self.id(), \"{}\".to_string()).await?;\n", edge.name));
                 edge_methods.push_str("        Ok(count as i64)\n");
                 edge_methods.push_str("    }\n");
@@ -244,15 +250,9 @@ use crate::infrastructure::TaoOperations;
                     let add_method = format!("add_{}", edge.name.trim_end_matches('s')); // Remove plural 's'
                     edge_methods.push_str(&format!("    /// Add {} association via TAO\n", edge.name.trim_end_matches('s').replace('_', " ")));
                     edge_methods.push_str(&format!("    pub async fn {}(&self, target_id: i64) -> AppResult<()> {{\n", add_method));
-                    edge_methods.push_str("        let tao = crate::infrastructure::tao_core::get_tao_core().await?;\n");
-                        edge_methods.push_str("        \n");
-                    edge_methods.push_str("        let assoc = crate::infrastructure::create_tao_association(\n");
-                    edge_methods.push_str("            self.id(),\n");
-                    edge_methods.push_str(&format!("            \"{}\".to_string(),\n", edge.name));
-                    edge_methods.push_str("            target_id,\n");
-                    edge_methods.push_str("            None // No metadata\n");
-                    edge_methods.push_str("        );\n");
-                    edge_methods.push_str("        \n");
+                    edge_methods.push_str("        let tao = crate::infrastructure::tao::get_tao().await?;
+");
+                    edge_methods.push_str(&format!("        let assoc = crate::infrastructure::tao::create_tao_association(self.id(), \"{}\".to_string(), target_id, None);\n", edge.name));
                     edge_methods.push_str("        tao.assoc_add(assoc).await?;\n");
                     edge_methods.push_str("        Ok(())\n");
                     edge_methods.push_str("    }\n");
@@ -262,8 +262,9 @@ use crate::infrastructure::TaoOperations;
                     let remove_method = format!("remove_{}", edge.name.trim_end_matches('s'));
                     edge_methods.push_str(&format!("    /// Remove {} association via TAO\n", edge.name.trim_end_matches('s').replace('_', " ")));
                     edge_methods.push_str(&format!("    pub async fn {}(&self, target_id: i64) -> AppResult<bool> {{\n", remove_method));
-                    edge_methods.push_str("        let tao = crate::infrastructure::tao_core::get_tao_core().await?;\n");
-                        edge_methods.push_str(&format!("        tao.assoc_delete(self.id(), \"{}\".to_string(), target_id).await\n", edge.name));
+                    edge_methods.push_str("        let tao = crate::infrastructure::tao::get_tao().await?;
+");
+                    edge_methods.push_str(&format!("        tao.assoc_delete(self.id(), \"{}\".to_string(), target_id).await\n", edge.name));
                     edge_methods.push_str("    }\n");
                     edge_methods.push_str("    \n");
                 }

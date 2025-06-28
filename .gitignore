@@ -5,6 +5,7 @@ target/
 Cargo.lock  # include only if this is a library
 data/
 .claude/
+tmp/
 
 # === React Frontend ===
 node_modules/

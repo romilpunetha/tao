@@ -12,7 +12,7 @@ import {
   UserStats,
 } from '../types/api';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+const API_BASE_URL = 'http://localhost:3000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -84,7 +84,7 @@ export class TaoApiService {
     const params: any = {};
     if (limit) params.limit = limit;
     if (viewerId) params.viewer_id = viewerId;
-    
+
     const response = await api.get<ApiResponse<Post[]>>(`/users/${userId}/posts`, { params });
     if (!response.data.success) {
       throw new Error(response.data.error || 'Failed to get user posts');
@@ -121,7 +121,7 @@ export class TaoApiService {
     const params: any = {};
     if (limit) params.limit = limit;
     if (viewerId) params.viewer_id = viewerId;
-    
+
     const response = await api.get<ApiResponse<User[]>>(`/users/${userId}/friends`, { params });
     if (!response.data.success) {
       throw new Error(response.data.error || 'Failed to get user friends');
@@ -142,7 +142,7 @@ export class TaoApiService {
     const params: any = {};
     if (maxUsers) params.max_users = maxUsers;
     if (viewerId) params.viewer_id = viewerId;
-    
+
     const response = await api.get<ApiResponse<GraphData>>('/graph', { params });
     if (!response.data.success) {
       throw new Error(response.data.error || 'Failed to get graph data');

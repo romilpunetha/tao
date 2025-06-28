@@ -9,7 +9,7 @@ use tracing::{info, instrument};
 
 use crate::error::{AppResult, AppError};
 use crate::infrastructure::traits::CacheInterface;
-use crate::infrastructure::tao::{TaoId, TaoObject, TaoAssociation};
+use crate::infrastructure::tao_core::{TaoId, TaoObject, TaoAssociation};
 
 /// Cache entry with TTL and versioning
 #[derive(Debug, Clone)]
@@ -55,6 +55,16 @@ pub struct TaoMultiTierCache {
     config: CacheConfig,
     /// Cache metrics for monitoring
     metrics: Arc<CacheMetrics>,
+}
+
+impl std::fmt::Debug for TaoMultiTierCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaoMultiTierCache")
+            .field("config", &self.config)
+            .field("has_l2_cache", &self.l2_cache.is_some())
+            .field("metrics", &self.metrics)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -488,4 +498,12 @@ impl CacheInterface for TaoMultiTierCache {
     async fn get_associations(&self, id1: TaoId, atype: &str) -> AppResult<Option<Vec<TaoAssociation>>> {
         self.get_associations(id1, atype).await
     }
+}
+
+/// Initialize a default cache configuration for production use
+pub async fn initialize_cache_default() -> AppResult<Arc<TaoMultiTierCache>> {
+    let config = CacheConfig::default();
+    let cache = TaoMultiTierCache::new(config);
+    info!("✅ Multi-tier cache initialized with default configuration");
+    Ok(Arc::new(cache))
 }

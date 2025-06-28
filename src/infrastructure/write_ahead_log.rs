@@ -7,7 +7,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::tao::current_time_millis;
+use crate::infrastructure::tao_core::current_time_millis;
 use crate::infrastructure::wal_storage::WalStorage;
 
 /// Unique transaction identifier
@@ -40,7 +40,7 @@ pub enum TaoOperation {
 }
 
 // Re-export the TaoAssociation for WAL to use
-use crate::infrastructure::tao::TaoAssociation;
+use crate::infrastructure::tao_core::TaoAssociation;
 
 impl TaoOperation {
 
