@@ -2,6 +2,14 @@
 // This layer handles direct SQL queries for objects, associations, and indexes
 
 use crate::error::{AppError, AppResult};
+use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use sqlx::{Column, Row, Transaction, ValueRef};
+use sqlx::postgres::{PgPool, Postgres};
+use sqlx::sqlite::Sqlite; // Added Sqlite for generic DatabaseTransaction
+
 // Generic database types - framework agnostic
 pub type ObjectId = i64;
 pub type ObjectType = String;
@@ -49,11 +57,6 @@ pub struct ObjectQuery {
     pub limit: Option<u32>,
     pub offset: Option<u64>,
 }
-use async_trait::async_trait;
-use std::collections::HashMap;
-use sqlx::postgres::{PgPool, PgPoolOptions, Postgres};
-use sqlx::sqlite::Sqlite;
-use sqlx::{Column, Row, Transaction, ValueRef}; // Added Sqlite for generic DatabaseTransaction
 
 /// Association query result with pagination - framework agnostic
 #[derive(Debug, Clone)]
@@ -87,24 +90,32 @@ impl DatabaseTransaction {
     /// Commit the transaction
     pub async fn commit(self) -> AppResult<()> {
         match self {
-            DatabaseTransaction::Postgres(tx) => tx.commit().await.map_err(|e| {
-                AppError::DatabaseError(format!("Failed to commit postgres transaction: {}", e))
-            }),
-            DatabaseTransaction::Sqlite(tx) => tx.commit().await.map_err(|e| {
-                AppError::DatabaseError(format!("Failed to commit sqlite transaction: {}", e))
-            }),
+            DatabaseTransaction::Postgres(tx) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Failed to commit postgres transaction: {}", e)))
+            }
+            DatabaseTransaction::Sqlite(tx) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Failed to commit sqlite transaction: {}", e)))
+            }
         }
     }
 
     /// Rollback the transaction
     pub async fn rollback(self) -> AppResult<()> {
         match self {
-            DatabaseTransaction::Postgres(tx) => tx.rollback().await.map_err(|e| {
-                AppError::DatabaseError(format!("Failed to rollback postgres transaction: {}", e))
-            }),
-            DatabaseTransaction::Sqlite(tx) => tx.rollback().await.map_err(|e| {
-                AppError::DatabaseError(format!("Failed to rollback sqlite transaction: {}", e))
-            }),
+            DatabaseTransaction::Postgres(tx) => {
+                tx.rollback()
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Failed to rollback postgres transaction: {}", e)))
+            }
+            DatabaseTransaction::Sqlite(tx) => {
+                tx.rollback()
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Failed to rollback sqlite transaction: {}", e)))
+            }
         }
     }
 
@@ -112,9 +123,7 @@ impl DatabaseTransaction {
     pub fn as_postgres_mut(&mut self) -> AppResult<&mut Transaction<'static, Postgres>> {
         match self {
             DatabaseTransaction::Postgres(tx) => Ok(tx),
-            DatabaseTransaction::Sqlite(_) => Err(AppError::DatabaseError(
-                "Transaction is not PostgreSQL".to_string(),
-            )),
+            DatabaseTransaction::Sqlite(_) => Err(AppError::DatabaseError("Transaction is not PostgreSQL".to_string())),
         }
     }
 
@@ -122,9 +131,7 @@ impl DatabaseTransaction {
     pub fn as_sqlite_mut(&mut self) -> AppResult<&mut Transaction<'static, Sqlite>> {
         match self {
             DatabaseTransaction::Sqlite(tx) => Ok(tx),
-            DatabaseTransaction::Postgres(_) => Err(AppError::DatabaseError(
-                "Transaction is not SQLite".to_string(),
-            )),
+            DatabaseTransaction::Postgres(_) => Err(AppError::DatabaseError("Transaction is not SQLite".to_string())),
         }
     }
 }
@@ -155,12 +162,8 @@ pub trait DatabaseInterface: Send + Sync {
         atype: AssociationType,
         id2: ObjectId,
     ) -> AppResult<bool>;
-    async fn association_exists(
-        &self,
-        id1: ObjectId,
-        atype: AssociationType,
-        id2: ObjectId,
-    ) -> AppResult<bool>;
+    async fn association_exists(&self, id1: ObjectId, atype: AssociationType, id2: ObjectId)
+        -> AppResult<bool>;
     async fn count_associations(&self, id1: ObjectId, atype: AssociationType) -> AppResult<u64>;
 
     // Index operations - Generic association counting
@@ -216,13 +219,8 @@ pub struct PostgresDatabase {
 }
 
 impl PostgresDatabase {
-    pub async fn new(database_url: &str) -> AppResult<Self> {
-        let pool = PgPoolOptions::new()
-            .max_connections(20)
-            .connect(database_url)
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to connect to database: {}", e)))?;
-        Ok(Self { pool })
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
     }
 
     /// Health check to verify database connectivity
