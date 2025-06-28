@@ -4,19 +4,28 @@
 
 use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
-use once_cell::sync::OnceCell;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{info};
+use tracing::info;
+use serde::{Deserialize, Serialize};
 
 use crate::infrastructure::{
     association_registry::AssociationRegistry,
-    database::{DatabaseInterface, DatabaseTransaction, Object, Association, ObjectQuery, AssocQuery, ObjectId, ObjectType, AssociationType, Timestamp, PostgresDatabase},
-    query_router::{TaoQueryRouter, QueryRouterConfig},
-    shard_topology::{ShardId, ShardInfo, ShardHealth},
+    database::{
+        AssocQuery, Association, DatabaseInterface, DatabaseTransaction, Object, ObjectQuery, PostgresDatabase, ObjectId, ObjectType, AssociationType, Timestamp
+    },
+    query_router::{QueryRouterConfig, TaoQueryRouter},
+    shard_topology::{ShardHealth, ShardId, ShardInfo},
 };
+use sqlx::postgres::PgPoolOptions;
 
+/// Current time in milliseconds since Unix epoch
+pub fn current_time_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
 
 /// TAO ID type for entity and association IDs
 pub type TaoId = i64;
@@ -234,9 +243,18 @@ pub trait TaoOperations: Send + Sync + std::fmt::Debug {
         atype: AssocType,
         limit: Option<u32>,
     ) -> AppResult<Vec<TaoObject>>;
-    async fn get_neighbor_ids(&self, id1: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>>;
+    async fn get_neighbor_ids(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoId>>;
     /// Get all objects of a specific type across all shards.
-    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>>;
+    async fn get_all_objects_of_type(
+        &self,
+        otype: TaoType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>>;
 
     // Graph visualization methods
     /// Get all objects and associations from all shards for graph visualization
@@ -247,15 +265,6 @@ pub trait TaoOperations: Send + Sync + std::fmt::Debug {
 
     // Custom queries (for advanced use cases)
     async fn execute_query(&self, query: String) -> AppResult<Vec<HashMap<String, String>>>;
-
-}
-
-/// Current time in milliseconds since Unix epoch
-pub fn current_time_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64
 }
 
 /// TaoCore - Core TAO implementation following Meta's architecture
@@ -288,9 +297,20 @@ impl TaoCore {
 
         // Initialize database shards from config
         for shard_config in config.database_shards.drain(..) {
-            info!("Initializing shard {} at {}", shard_config.shard_id, shard_config.connection_string);
+            info!(
+                "Initializing shard {} at {}",
+                shard_config.shard_id, shard_config.connection_string
+            );
 
-            let database = PostgresDatabase::new(&shard_config.connection_string).await?;
+            let pool = PgPoolOptions::new()
+                .max_connections(shard_config.max_connections)
+                .min_connections(shard_config.min_connections)
+                .acquire_timeout(std::time::Duration::from_secs(shard_config.acquire_timeout_secs))
+                .connect(&shard_config.connection_string)
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to connect to database for shard {}: {}", shard_config.shard_id, e)))?;
+
+            let database = PostgresDatabase::new(pool);
             database.initialize().await?;
 
             let db_interface: Arc<dyn DatabaseInterface> = Arc::new(database);
@@ -313,12 +333,16 @@ impl TaoCore {
 
         Ok(Self::new(query_router, association_registry))
     }
-
 }
 
 #[async_trait]
 impl TaoOperations for TaoCore {
-    async fn obj_add(&self, otype: TaoType, data: Vec<u8>, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+    async fn obj_add(
+        &self,
+        otype: TaoType,
+        data: Vec<u8>,
+        owner_id: Option<TaoId>,
+    ) -> AppResult<TaoId> {
         let id = self.query_router.generate_tao_id(owner_id).await?;
         let database = self.query_router.get_database_for_object(id).await?;
         database.create_object(id, otype.clone(), data).await?;
@@ -330,7 +354,14 @@ impl TaoOperations for TaoCore {
         let result = database.get_object(id).await?;
 
         if let Some(obj) = result {
-            Ok(Some(obj.into())) // Convert Object to TaoObject
+            Ok(Some(TaoObject {
+                id: obj.id,
+                otype: obj.otype,
+                data: obj.data, // Data is already in raw bytes (Thrift)
+                created_time: obj.created_time,
+                updated_time: obj.updated_time,
+                version: obj.version,
+            }))
         } else {
             Ok(None)
         }
@@ -338,7 +369,7 @@ impl TaoOperations for TaoCore {
 
     async fn obj_update(&self, id: TaoId, data: Vec<u8>) -> AppResult<()> {
         let database = self.query_router.get_database_for_object(id).await?;
-        database.update_object(id, data).await?;
+        database.update_object(id, data).await?; // Data is already in raw bytes (Thrift)
         info!("obj_update: Object {} updated", id);
         Ok(())
     }
@@ -389,7 +420,10 @@ impl TaoOperations for TaoCore {
         let database = self.query_router.get_database_for_object(assoc.id1).await?;
         let db_assoc: Association = assoc.clone().into(); // Convert TaoAssociation to Association
         database.create_association(db_assoc).await?;
-        info!("assoc_add: Created association {}->{} ({})", assoc.id1, assoc.id2, assoc.atype);
+        info!(
+            "assoc_add: Created association {}->{} ({})",
+            assoc.id1, assoc.id2, assoc.atype
+        );
         Ok(())
     }
 
@@ -398,7 +432,11 @@ impl TaoOperations for TaoCore {
         let db_query: AssocQuery = query.into();
         let result = database.get_associations(db_query).await?;
         // Convert database associations back to TAO associations
-        Ok(result.associations.into_iter().map(|assoc| assoc.into()).collect())
+        Ok(result
+            .associations
+            .into_iter()
+            .map(|assoc| assoc.into())
+            .collect())
     }
 
     async fn assoc_delete(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
@@ -406,9 +444,15 @@ impl TaoOperations for TaoCore {
         let deleted = database.delete_association(id1, atype.clone(), id2).await?;
         if deleted {
             // Cache removed - handled by decorators now
-            info!("assoc_delete: Deleted association {}->{} ({})", id1, id2, atype);
+            info!(
+                "assoc_delete: Deleted association {}->{} ({})",
+                id1, id2, atype
+            );
         } else {
-            info!("assoc_delete: Association {}->{} ({}) not found for deletion", id1, id2, atype);
+            info!(
+                "assoc_delete: Association {}->{} ({}) not found for deletion",
+                id1, id2, atype
+            );
         }
         Ok(deleted)
     }
@@ -437,7 +481,11 @@ impl TaoOperations for TaoCore {
         let database = self.query_router.get_database_for_object(id1).await?;
         let result = database.get_associations(query).await?;
         // Convert database associations back to TAO associations
-        Ok(result.associations.into_iter().map(|assoc| assoc.into()).collect())
+        Ok(result
+            .associations
+            .into_iter()
+            .map(|assoc| assoc.into())
+            .collect())
     }
 
     async fn assoc_time_range(
@@ -460,7 +508,11 @@ impl TaoOperations for TaoCore {
         let database = self.query_router.get_database_for_object(id1).await?;
         let result = database.get_associations(query).await?;
         // Convert database associations back to TAO associations
-        Ok(result.associations.into_iter().map(|assoc| assoc.into()).collect())
+        Ok(result
+            .associations
+            .into_iter()
+            .map(|assoc| assoc.into())
+            .collect())
     }
 
     async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
@@ -494,7 +546,14 @@ impl TaoOperations for TaoCore {
             };
             let result = database.get_objects(query).await?;
             // Convert database objects back to TAO objects
-            results.extend(result.objects.into_iter().map(|obj| obj.into()));
+            results.extend(result.objects.into_iter().map(|obj| TaoObject {
+                id: obj.id,
+                otype: obj.otype,
+                data: obj.data, // Data is already in raw bytes (Thrift)
+                created_time: obj.created_time,
+                updated_time: obj.updated_time,
+                version: obj.version,
+            }));
         }
         Ok(results)
     }
@@ -512,7 +571,12 @@ impl TaoOperations for TaoCore {
         self.get_by_id_and_type(neighbor_ids, "".to_string()).await
     }
 
-    async fn get_neighbor_ids(&self, id1: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>> {
+    async fn get_neighbor_ids(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoId>> {
         let database = self.query_router.get_database_for_object(id1).await?;
         let query = AssocQuery {
             id1,
@@ -527,7 +591,11 @@ impl TaoOperations for TaoCore {
         Ok(result.associations.into_iter().map(|a| a.id2).collect())
     }
 
-    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_all_objects_of_type(
+        &self,
+        otype: TaoType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         let mut all_objects = Vec::new();
         let all_shard_ids = self.query_router.shard_manager.get_healthy_shards().await;
 
@@ -541,7 +609,14 @@ impl TaoOperations for TaoCore {
             };
             let result = db.get_objects(query).await?;
             // Convert database objects back to TAO objects
-            all_objects.extend(result.objects.into_iter().map(|obj| obj.into()));
+            all_objects.extend(result.objects.into_iter().map(|obj| TaoObject {
+                id: obj.id,
+                otype: obj.otype,
+                data: obj.data, // Data is already in raw bytes (Thrift)
+                created_time: obj.created_time,
+                updated_time: obj.updated_time,
+                version: obj.version,
+            }));
         }
         Ok(all_objects)
     }
@@ -571,7 +646,14 @@ impl TaoOperations for TaoCore {
             // Get all objects from this shard
             let shard_objects = database.get_all_objects_from_shard().await?;
             // Convert database objects back to TAO objects
-            all_objects.extend(shard_objects.into_iter().map(|obj| obj.into()));
+            all_objects.extend(shard_objects.into_iter().map(|obj| TaoObject {
+                id: obj.id,
+                otype: obj.otype,
+                data: obj.data, // Data is already in raw bytes (Thrift)
+                created_time: obj.created_time,
+                updated_time: obj.updated_time,
+                version: obj.version,
+            }));
 
             // Get all associations from this shard
             let shard_associations = database.get_all_associations_from_shard().await?;
@@ -579,14 +661,16 @@ impl TaoOperations for TaoCore {
             all_associations.extend(shard_associations.into_iter().map(|assoc| assoc.into()));
         }
 
-        info!("get_graph_data: Retrieved {} objects and {} associations from {} shards",
-              all_objects.len(), all_associations.len(), all_shard_ids.len());
+        info!(
+            "get_graph_data: Retrieved {} objects and {} associations from {} shards",
+            all_objects.len(),
+            all_associations.len(),
+            all_shard_ids.len()
+        );
 
         Ok((all_objects, all_associations))
     }
-
 }
-
 
 /// Create a TAO association
 pub fn create_tao_association(
@@ -605,44 +689,13 @@ pub fn create_tao_association(
 }
 
 
-// === TAO Singleton Management ===
-
-static TAO_CORE_INSTANCE: OnceCell<Arc<TaoCore>> = OnceCell::new();
-
-/// Initialize the global TaoCore instance with a query router
-pub async fn initialize_tao_core(
-    query_router: Arc<TaoQueryRouter>,
-    association_registry: Arc<AssociationRegistry>,
-) -> AppResult<()> {
-    let tao_core = TaoCore::new(query_router, association_registry);
-
-    TAO_CORE_INSTANCE.set(Arc::new(tao_core)).map_err(|_| {
-        AppError::Internal("TaoCore instance already initialized ".to_string())
-    })?;
-
-    println!("✅ TAO Core initialized (Meta architecture: TAO -> Query Router -> Database)");
-    Ok(())
-}
-
-/// Get the global TaoCore instance (lock-free, thread-safe)
-pub async fn get_tao_core() -> AppResult<Arc<TaoCore>> {
-    TAO_CORE_INSTANCE
-        .get()
-        .ok_or_else(|| {
-            AppError::Internal(
-                "TaoCore instance not initialized. Call initialize_tao_core() first.".to_string(),
-            )
-        })
-        .map(|tao_core| tao_core.clone())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::infrastructure::database::DatabaseInterface;
     use crate::infrastructure::query_router::QueryRouterConfig;
-    use crate::infrastructure::sqlite_database::SqliteDatabase; // Use SqliteDatabase
-    use crate::infrastructure::shard_topology::{ShardInfo, ShardHealth}; // Removed unused imports
+    use crate::infrastructure::shard_topology::{ShardHealth, ShardInfo};
+    use crate::infrastructure::sqlite_database::SqliteDatabase; // Use SqliteDatabase // Removed unused imports
 
     async fn setup_tao_core() -> Arc<TaoCore> {
         // Initialize in-memory SQLite database for testing
@@ -659,10 +712,13 @@ mod tests {
             connection_string: "sqlite_in_memory".to_string(),
             region: "test-region".to_string(),
             replicas: vec![],
-            last_health_check: crate::infrastructure::tao_core::current_time_millis(),
+            last_health_check: current_time_millis(),
             load_factor: 0.0,
         };
-        query_router.add_shard(shard_info, sqlite_db as Arc<dyn DatabaseInterface>).await.unwrap();
+        query_router
+            .add_shard(shard_info, sqlite_db as Arc<dyn DatabaseInterface>)
+            .await
+            .unwrap();
 
         let association_registry = Arc::new(AssociationRegistry::new());
         Arc::new(TaoCore::new(query_router, association_registry))
@@ -671,8 +727,13 @@ mod tests {
     #[tokio::test]
     async fn test_obj_add_get() {
         let tao = setup_tao_core().await;
-        let user_data = serde_json::json!({"name": "Test User", "email": "test@example.com"}).to_string().into_bytes();
-        let user_id = tao.obj_add("user".to_string(), user_data.clone(), None).await.unwrap();
+        let user_data = serde_json::json!({"name": "Test User", "email": "test@example.com"})
+            .to_string()
+            .into_bytes();
+        let user_id = tao
+            .obj_add("user".to_string(), user_data.clone(), None)
+            .await
+            .unwrap();
 
         let fetched_user = tao.obj_get(user_id).await.unwrap().unwrap();
         assert_eq!(fetched_user.id, user_id);
@@ -683,39 +744,77 @@ mod tests {
     #[tokio::test]
     async fn test_assoc_add_get_count() {
         let tao = setup_tao_core().await;
-        let user1_id = tao.obj_add("user".to_string(), b"{}".to_vec(), None).await.unwrap();
-        let user2_id = tao.obj_add("user".to_string(), b"{}".to_vec(), None).await.unwrap();
+        let user1_id = tao
+            .obj_add("user".to_string(), b"{}".to_vec(), None)
+            .await
+            .unwrap();
+        let user2_id = tao
+            .obj_add("user".to_string(), b"{}".to_vec(), None)
+            .await
+            .unwrap();
 
         let assoc = create_tao_association(user1_id, "friend".to_string(), user2_id, None);
         tao.assoc_add(assoc.clone()).await.unwrap();
 
-        let fetched_assocs = tao.assoc_get(TaoAssocQuery {
-            id1: user1_id,
-            atype: "friend".to_string(),
-            id2_set: None,
-            high_time: None,
-            low_time: None,
-            limit: None,
-            offset: None,
-        }).await.unwrap();
+        let fetched_assocs = tao
+            .assoc_get(TaoAssocQuery {
+                id1: user1_id,
+                atype: "friend".to_string(),
+                id2_set: None,
+                high_time: None,
+                low_time: None,
+                limit: None,
+                offset: None,
+            })
+            .await
+            .unwrap();
         assert_eq!(fetched_assocs.len(), 1);
         assert_eq!(fetched_assocs[0].id2, user2_id);
 
-        let count = tao.assoc_count(user1_id, "friend".to_string()).await.unwrap();
+        let count = tao
+            .assoc_count(user1_id, "friend".to_string())
+            .await
+            .unwrap();
         assert_eq!(count, 1);
     }
 
     #[tokio::test]
     async fn test_get_neighbor_ids() {
         let tao = setup_tao_core().await;
-        let user1_id = tao.obj_add("user".to_string(), b"{}".to_vec(), None).await.unwrap();
-        let user2_id = tao.obj_add("user".to_string(), b"{}".to_vec(), None).await.unwrap();
-        let user3_id = tao.obj_add("user".to_string(), b"{}".to_vec(), None).await.unwrap();
+        let user1_id = tao
+            .obj_add("user".to_string(), b"{}".to_vec(), None)
+            .await
+            .unwrap();
+        let user2_id = tao
+            .obj_add("user".to_string(), b"{}".to_vec(), None)
+            .await
+            .unwrap();
+        let user3_id = tao
+            .obj_add("user".to_string(), b"{}".to_vec(), None)
+            .await
+            .unwrap();
 
-        tao.assoc_add(create_tao_association(user1_id, "friend".to_string(), user2_id, None)).await.unwrap();
-        tao.assoc_add(create_tao_association(user1_id, "friend".to_string(), user3_id, None)).await.unwrap();
+        tao.assoc_add(create_tao_association(
+            user1_id,
+            "friend".to_string(),
+            user2_id,
+            None,
+        ))
+        .await
+        .unwrap();
+        tao.assoc_add(create_tao_association(
+            user1_id,
+            "friend".to_string(),
+            user3_id,
+            None,
+        ))
+        .await
+        .unwrap();
 
-        let neighbors = tao.get_neighbor_ids(user1_id, "friend".to_string(), None).await.unwrap();
+        let neighbors = tao
+            .get_neighbor_ids(user1_id, "friend".to_string(), None)
+            .await
+            .unwrap();
         assert_eq!(neighbors.len(), 2);
         assert!(neighbors.contains(&user2_id));
         assert!(neighbors.contains(&user3_id));
@@ -724,16 +823,28 @@ mod tests {
     #[tokio::test]
     async fn test_get_all_objects_of_type() {
         let tao = setup_tao_core().await;
-        tao.obj_add("user".to_string(), b"user1".to_vec(), None).await.unwrap();
-        tao.obj_add("user".to_string(), b"user2".to_vec(), None).await.unwrap();
-        tao.obj_add("post".to_string(), b"post1".to_vec(), None).await.unwrap();
+        tao.obj_add("user".to_string(), b"user1".to_vec(), None)
+            .await
+            .unwrap();
+        tao.obj_add("user".to_string(), b"user2".to_vec(), None)
+            .await
+            .unwrap();
+        tao.obj_add("post".to_string(), b"post1".to_vec(), None)
+            .await
+            .unwrap();
 
-        let users = tao.get_all_objects_of_type("user".to_string(), None).await.unwrap();
+        let users = tao
+            .get_all_objects_of_type("user".to_string(), None)
+            .await
+            .unwrap();
         assert_eq!(users.len(), 2);
         assert!(users.iter().any(|o| o.data == b"user1"));
         assert!(users.iter().any(|o| o.data == b"user2"));
 
-        let posts = tao.get_all_objects_of_type("post".to_string(), None).await.unwrap();
+        let posts = tao
+            .get_all_objects_of_type("post".to_string(), None)
+            .await
+            .unwrap();
         assert_eq!(posts.len(), 1);
         assert!(posts.iter().any(|o| o.data == b"post1"));
     }
