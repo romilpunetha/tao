@@ -3,10 +3,10 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::id_generator::{get_id_generator, TaoIdGenerator};
+use crate::infrastructure::id_generator::TaoIdGenerator;
 use crate::infrastructure::shard_topology::{
     ConsistentHashingShardManager, ShardHealth, ShardId, ShardInfo, ShardManager, ShardTopology,
 };
@@ -95,7 +95,7 @@ impl TaoQueryRouter {
             databases.insert(shard_id, database);
         }
 
-        info!(
+        println!(
             "Successfully added shard {} with database connection to query router",
             shard_id
         );
@@ -147,10 +147,21 @@ impl TaoQueryRouter {
             // Pick a random shard
             use rand::Rng;
             let mut rng = rand::rng();
-            let random_index = rng.random_range(0..available_shards.len());
-            let random_shard_id = available_shards[random_index];
-            let id_generator = TaoIdGenerator::new(random_shard_id);
-            Ok(id_generator.next_id())
+            let mut random_shard_id;
+            let mut generated_id;
+            loop {
+                let random_index = rng.random_range(0..available_shards.len());
+                random_shard_id = available_shards[random_index];
+                let id_generator = TaoIdGenerator::new(random_shard_id);
+                generated_id = id_generator.next_id();
+                // Verify that the generated ID's embedded shard ID matches the chosen random shard ID
+                if TaoIdGenerator::extract_shard_id(generated_id) == random_shard_id {
+                    break;
+                } else {
+                    println!("Generated ID's embedded shard ID does not match the chosen random shard ID. Retrying ID generation.");
+                }
+            }
+            Ok(generated_id)
         }
     }
 
@@ -160,6 +171,7 @@ impl TaoQueryRouter {
         object_id: i64,
     ) -> AppResult<Arc<dyn crate::infrastructure::DatabaseInterface>> {
         let shard_id = self.get_shard_for_object(object_id).await;
+        // println!("Shard for object id {} is {}", object_id, shard_id);
         self.get_database_for_shard(shard_id).await
     }
 

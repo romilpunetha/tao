@@ -2,6 +2,7 @@
 
 pub mod ent_hooks;
 pub mod ent_privacy;
+pub mod ent_builder;
 pub mod ent_schema;
 pub mod ent_trait;
 

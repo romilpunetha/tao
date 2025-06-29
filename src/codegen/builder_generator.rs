@@ -46,6 +46,14 @@ impl<'a> BuilderGenerator<'a> {
             fields,
         )?);
 
+        // Generate EntBuilder implementation
+        builder_content.push_str(&self.generate_ent_builder_impl(
+            entity_type,
+            &struct_name,
+            &builder_name,
+            fields,
+        )?);
+
         // Generate entity create() method
         builder_content.push_str(&self.generate_entity_create_method(
             &struct_name,
@@ -63,7 +71,8 @@ impl<'a> BuilderGenerator<'a> {
     /// Generate necessary imports for builder
     fn generate_imports(&self, struct_name: &str) -> String {
         format!(
-            r#"use crate::ent_framework::Entity;
+            r#"use crate::ent_framework::ent_builder::EntBuilder;
+use crate::ent_framework::Entity;
 use crate::infrastructure::tao::{{current_time_millis, Tao}};
 use crate::infrastructure::tao_core::TaoOperations;
 use crate::error::AppResult;
@@ -71,6 +80,8 @@ use super::entity::{};
 use thrift::protocol::TSerializable;
 use thrift::protocol::TCompactOutputProtocol; // Added for serialization
 use std::io::Cursor; // Added for serialization
+use crate::infrastructure::global_tao::get_global_tao; // Import global_tao
+use async_trait::async_trait;
 
 "#,
             struct_name
@@ -88,12 +99,9 @@ use std::io::Cursor; // Added for serialization
             builder_name
         );
 
-        // Add fields (all optional except ID which is generated)
+        // Add fields (all optional, including ID for save() method)
+        builder_struct.push_str(&format!("    {}: Option<{}>,\n", "id", "i64"));
         for field in fields {
-            if field.name == "id" {
-                continue; // ID is generated, not set by user
-            }
-
             let rust_type = utils::field_type_to_rust(&field.field_type, false);
             builder_struct.push_str(&format!("    {}: Option<{}>,\n", field.name, rust_type));
         }
@@ -119,10 +127,6 @@ use std::io::Cursor; // Added for serialization
 
         // Generate fluent setter methods
         for field in fields {
-            if field.name == "id" {
-                continue; // Skip ID field
-            }
-
             let rust_type = utils::field_type_to_rust(&field.field_type, false);
             let method_name = &field.name;
 
@@ -138,110 +142,153 @@ use std::io::Cursor; // Added for serialization
             impl_block.push_str("    }\n\n");
         }
 
-        // Generate the crucial save() method
-        impl_block.push_str(&self.generate_save_method(entity_type, struct_name, fields)?);
+        // Generate the build() method that just builds the object
+        impl_block.push_str(&self.generate_build_method(entity_type, struct_name, fields)?);
+
+        // Generate the savex() method that saves to database
+        impl_block.push_str(&self.generate_savex_method(entity_type, struct_name, fields)?);
 
         impl_block.push_str("}\n\n");
         Ok(impl_block)
     }
 
-    /// Generate the save() method that uses ID generator and TAO
-    fn generate_save_method(
+    /// Generate the build() method that just builds the object without saving
+    fn generate_build_method(
         &self,
-        entity_type: &EntityType,
+        _entity_type: &EntityType,
         struct_name: &str,
         fields: &[FieldDefinition],
     ) -> Result<String, String> {
-        let mut save_method = "    /// Save the entity to database via TAO\n".to_string();
-        save_method.push_str(&format!(
-            "    pub async fn save(self, tao: &Tao) -> AppResult<{}> {{\n",
+        let mut build_method = "    /// Build the entity without saving to database\n".to_string();
+        build_method.push_str(&format!(
+            "    pub fn build(self, id: i64) -> Result<{}, String> {{\n",
             struct_name
         ));
 
         // Set current time for timestamp fields
-        save_method.push_str("        let current_time = current_time_millis();\n\n");
+        build_method.push_str("        let current_time = current_time_millis();\n\n");
 
-        // Build the entity (without ID, TAO will generate it)
-        save_method.push_str(&format!("        let entity = {} {{\n", struct_name));
-        save_method.push_str("            id: 0, // TAO will generate the actual ID\n");
-
+        // Build the entity
+        build_method.push_str(&format!("        let entity = {} {{\n", struct_name));
+        build_method.push_str("            id,\n");
         for field in fields {
-            if field.name == "id" {
-                continue; // Already handled above
-            }
-
             match field.name.as_str() {
                 "created_time" => {
-                    save_method.push_str("            created_time: current_time,\n");
+                    build_method.push_str("            created_time: current_time,\n");
                 }
                 "updated_time" | "time_updated" => {
                     if field.optional {
-                        save_method.push_str("            updated_time: Some(current_time),\n");
+                        build_method.push_str("            updated_time: Some(current_time),\n");
                     } else {
-                        save_method.push_str("            updated_time: current_time,\n");
+                        build_method.push_str("            updated_time: current_time,\n");
                     }
                 }
                 _ => {
                     if field.optional {
-                        save_method.push_str(&format!(
+                        build_method.push_str(&format!(
                             "            {}: self.{},\n",
                             field.name, field.name
                         ));
                     } else {
-                        save_method.push_str(&format!("            {}: self.{}.ok_or_else(|| crate::error::AppError::Validation(\n", field.name, field.name));
-                        save_method.push_str(&format!(
+                        build_method.push_str(&format!(
+                            "            {}: self.{}.ok_or_else(|| \n",
+                            field.name, field.name
+                        ));
+                        build_method.push_str(&format!(
                             "                \"Required field '{}' not provided\".to_string()\n",
                             field.name
                         ));
-                        save_method.push_str("            ))?,\n");
+                        build_method.push_str("            )?,\n");
                     }
                 }
             }
         }
-        save_method.push_str("        };\n\n");
+        build_method.push_str("        };\n\n");
 
-        // Validate the entity
-        save_method.push_str("        // Validate entity before saving\n");
-        save_method.push_str("        let validation_errors = entity.validate()?;\n");
-        save_method.push_str("        if !validation_errors.is_empty() {\n");
-        save_method.push_str("            return Err(crate::error::AppError::Validation(\n");
-        save_method.push_str(
-            "                format!(\"Validation failed: {}\", validation_errors.join(\", \"))\n",
-        );
-        save_method.push_str("            ));\n");
-        save_method.push_str("        }\n\n");
+        build_method.push_str("        Ok(entity)\n");
+        build_method.push_str("    }\n\n");
 
-        // Serialize using Thrift directly
-        save_method.push_str("        // Serialize entity to bytes for TAO storage\n");
-        save_method.push_str("        // Serialize entity to bytes for TAO storage\n");
-        save_method.push_str("        let mut buffer = Vec::new();\n");
-        save_method.push_str("        let mut cursor = Cursor::new(&mut buffer);\n");
-        save_method.push_str("        let mut protocol = TCompactOutputProtocol::new(&mut cursor);\n");
-        save_method.push_str("        entity.write_to_out_protocol(&mut protocol)\n");
-        save_method.push_str("            .map_err(|e| crate::error::AppError::SerializationError(e.to_string()))?;\n");
-        save_method.push_str("        let data = buffer;\n\n");
+        Ok(build_method)
+    }
 
-        save_method.push_str("        // Create object using TAO - TAO handles ID generation internally\n");
-        let entity_type_str = entity_type.as_str();
+    /// Generate the savex() method that uses the generic TAO create method
+    fn generate_savex_method(
+        &self,
+        _entity_type: &EntityType,
+        struct_name: &str,
+        _fields: &[FieldDefinition],
+    ) -> Result<String, String> {
+        let mut save_method = "    /// Save the entity to database via TAO\n".to_string();
         save_method.push_str(&format!(
-            "        let generated_id = tao.obj_add(\"{}\".to_string(), data, None).await?;\n\n",
-            entity_type_str
-        ));
-
-        // Update entity with the generated ID
-        save_method.push_str("        // Create final entity with generated ID\n");
-        save_method.push_str(&format!("        let mut final_entity = entity;\n"));
-        save_method.push_str("        final_entity.id = generated_id;\n\n");
-
-        save_method.push_str(&format!(
-            "        println!(\"✅ Created {} with TAO ID: {{}}\", generated_id);\n\n",
+            "    pub async fn savex(self) -> AppResult<{}> {{\n",
             struct_name
         ));
-
-        save_method.push_str("        Ok(final_entity)\n");
+        save_method.push_str("        let tao = get_global_tao()?.clone();\n");
+        save_method.push_str("        tao.create(self, None).await\n");
         save_method.push_str("    }\n\n");
-
         Ok(save_method)
+    }
+
+    /// Generate the EntBuilder trait implementation for the builder
+    fn generate_ent_builder_impl(
+        &self,
+        entity_type: &EntityType,
+        struct_name: &str,
+        builder_name: &str,
+        fields: &[FieldDefinition],
+    ) -> Result<String, String> {
+        let mut impl_block = format!("#[async_trait]\nimpl EntBuilder for {} {{\n", builder_name);
+        impl_block.push_str(&format!("    type EntityType = {};\n\n", struct_name));
+
+        // Implement build()
+        impl_block.push_str("    fn build(self, id: i64) -> Result<Self::EntityType, String> {\n");
+        impl_block.push_str("        let current_time = current_time_millis();\n\n");
+        impl_block.push_str(&format!("        let entity = {} {{\n", struct_name));
+        impl_block.push_str("            id,\n");
+        for field in fields {
+            match field.name.as_str() {
+                "created_time" => {
+                    impl_block.push_str("            created_time: current_time,\n");
+                }
+                "updated_time" | "time_updated" => {
+                    if field.optional {
+                        impl_block.push_str("            updated_time: Some(current_time),\n");
+                    } else {
+                        impl_block.push_str("            updated_time: current_time,\n");
+                    }
+                }
+                _ => {
+                    if field.optional {
+                        impl_block.push_str(&format!(
+                            "            {}: self.{},\n",
+                            field.name, field.name
+                        ));
+                    } else {
+                        impl_block.push_str(&format!(
+                            "            {}: self.{}.ok_or_else(|| \n",
+                            field.name, field.name
+                        ));
+                        impl_block.push_str(&format!(
+                            "                \"Required field '{}' not provided\".to_string()\n",
+                            field.name
+                        ));
+                        impl_block.push_str("            )?,\n");
+                    }
+                }
+            }
+        }
+        impl_block.push_str("        };\n\n");
+        impl_block.push_str("        Ok(entity)\n");
+        impl_block.push_str("    }\n\n");
+
+        // Implement entity_type()
+        impl_block.push_str("    fn entity_type() -> &'static str {\n");
+        let entity_type_str = entity_type.as_str();
+        impl_block.push_str(&format!("        \"{}\"\n", entity_type_str));
+        impl_block.push_str("    }\n");
+
+        impl_block.push_str("}\n\n");
+        Ok(impl_block)
     }
 
     /// Generate create() static method for entity

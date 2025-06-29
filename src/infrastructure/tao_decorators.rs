@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
+use crate::ent_framework::ent_builder::EntBuilder;
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::{
     cache_layer::TaoMultiTierCache,
@@ -40,17 +41,16 @@ impl BaseTao {
 
 #[async_trait]
 impl TaoOperations for BaseTao {
-    async fn obj_get(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
-        self.core.obj_get(id).await
+    async fn generate_id(&self, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+        self.core.generate_id(owner_id).await
     }
 
-    async fn obj_add(
-        &self,
-        otype: TaoType,
-        data: Vec<u8>,
-        owner_id: Option<TaoId>,
-    ) -> AppResult<TaoId> {
-        self.core.obj_add(otype, data, owner_id).await
+    async fn create_object(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<()> {
+        self.core.create_object(id, otype, data).await
+    }
+
+    async fn obj_get(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
+        self.core.obj_get(id).await
     }
 
     async fn obj_update(&self, id: TaoId, data: Vec<u8>) -> AppResult<()> {
@@ -166,10 +166,6 @@ impl TaoOperations for BaseTao {
     ) -> AppResult<Vec<TaoObject>> {
         self.core.get_all_objects_of_type(otype, limit).await
     }
-
-    async fn get_graph_data(&self) -> AppResult<(Vec<TaoObject>, Vec<TaoAssociation>)> {
-        self.core.get_graph_data().await
-    }
 }
 
 #[async_trait]
@@ -213,9 +209,8 @@ impl WalDecorator {
                     data,
                 } => self
                     .inner
-                    .obj_add(object_type, data, Some(object_id))
-                    .await
-                    .map(|_| ()),
+                    .create_object(object_id, object_type, data)
+                    .await,
                 TaoOperation::InsertAssociation { assoc } => self.inner.assoc_add(assoc).await,
                 TaoOperation::DeleteAssociation { id1, atype, id2 } => {
                     self.inner.assoc_delete(id1, atype, id2).await.map(|_| ())
@@ -284,9 +279,8 @@ impl WalDecorator {
                             data,
                         } => self
                             .inner
-                            .obj_add(object_type, data, Some(object_id))
-                            .await
-                            .map(|_| ()),
+                            .create_object(object_id, object_type, data)
+                            .await,
                         TaoOperation::InsertAssociation { assoc } => {
                             self.inner.assoc_add(assoc).await
                         }
@@ -326,27 +320,17 @@ impl WalDecorator {
 
 #[async_trait]
 impl TaoOperations for WalDecorator {
-    // Write operations are enhanced with WAL logging for replay capability
+    async fn generate_id(&self, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+        self.inner.generate_id(owner_id).await
+    }
 
-    #[instrument(skip(self, data), fields(object_type = %otype))]
-    async fn obj_add(
-        &self,
-        otype: TaoType,
-        data: Vec<u8>,
-        owner_id: Option<TaoId>,
-    ) -> AppResult<TaoId> {
-        // First, determine the shard for this operation
-        let owner_id = owner_id.unwrap_or(0);
+    async fn create_object(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<()> {
+        // Execute the operation first
+        self.inner.create_object(id, otype.clone(), data.clone()).await?;
 
-        // Execute the operation first to get the actual object ID
-        let object_id = self
-            .inner
-            .obj_add(otype.clone(), data.clone(), Some(owner_id))
-            .await?;
-
-        // Now log to WAL for replay capability
+        // Log to WAL for replay capability
         let operation = TaoOperation::InsertObject {
-            object_id,
+            object_id: id,
             object_type: otype,
             data,
         };
@@ -356,12 +340,13 @@ impl TaoOperations for WalDecorator {
         self.wal.mark_transaction_committed(txn_id).await?;
 
         debug!(
-            "Logged obj_add operation {} to WAL as transaction {}",
-            object_id, txn_id
+            "Logged create_object operation {} to WAL as transaction {}",
+            id, txn_id
         );
-        Ok(object_id)
+        Ok(())
     }
 
+    // Write operations are enhanced with WAL logging for replay capability
     #[instrument(skip(self, data), fields(object_id = %id))]
     async fn obj_update(&self, id: TaoId, data: Vec<u8>) -> AppResult<()> {
         // Execute the operation first
@@ -591,10 +576,6 @@ impl TaoOperations for WalDecorator {
     ) -> AppResult<Vec<TaoObject>> {
         self.inner.get_all_objects_of_type(otype, limit).await
     }
-
-    async fn get_graph_data(&self) -> AppResult<(Vec<TaoObject>, Vec<TaoAssociation>)> {
-        self.inner.get_graph_data().await
-    }
 }
 
 #[async_trait]
@@ -629,29 +610,31 @@ impl MetricsDecorator {
 
 #[async_trait]
 impl TaoOperations for MetricsDecorator {
+    async fn generate_id(&self, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+        let start = Instant::now();
+        let result = self.inner.generate_id(owner_id).await;
+        self.record_operation("generate_id", start, result.is_ok())
+            .await;
+        result
+    }
+
+    async fn create_object(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<()> {
+        let start = Instant::now();
+        let result = self.inner.create_object(id, otype, data).await;
+        self.record_operation("create_object", start, result.is_ok())
+            .await;
+        if result.is_ok() {
+            self.record_business_event("create_object").await;
+        }
+        result
+    }
+
     #[instrument(skip(self), fields(object_id = %id))]
     async fn obj_get(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
         let start = Instant::now();
         let result = self.inner.obj_get(id).await;
         self.record_operation("obj_get", start, result.is_ok())
             .await;
-        result
-    }
-
-    #[instrument(skip(self, data), fields(object_type = %otype))]
-    async fn obj_add(
-        &self,
-        otype: TaoType,
-        data: Vec<u8>,
-        owner_id: Option<TaoId>,
-    ) -> AppResult<TaoId> {
-        let start = Instant::now();
-        let result = self.inner.obj_add(otype, data, owner_id).await;
-        self.record_operation("obj_add", start, result.is_ok())
-            .await;
-        if result.is_ok() {
-            self.record_business_event("obj_add").await;
-        }
         result
     }
 
@@ -853,14 +836,6 @@ impl TaoOperations for MetricsDecorator {
             .await;
         result
     }
-
-    async fn get_graph_data(&self) -> AppResult<(Vec<TaoObject>, Vec<TaoAssociation>)> {
-        let start = Instant::now();
-        let result = self.inner.get_graph_data().await;
-        self.record_operation("get_graph_data", start, result.is_ok())
-            .await;
-        result
-    }
 }
 
 #[async_trait]
@@ -894,6 +869,21 @@ impl CacheDecorator {
 
 #[async_trait]
 impl TaoOperations for CacheDecorator {
+    async fn generate_id(&self, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+        self.inner.generate_id(owner_id).await
+    }
+
+    async fn create_object(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<()> {
+        let result = self.inner.create_object(id, otype, data).await;
+
+        // Invalidate cache on successful creation
+        if result.is_ok() && self.enable_caching {
+            let _ = self.cache.invalidate_object(id).await;
+        }
+
+        result
+    }
+
     #[instrument(skip(self), fields(object_id = %id))]
     async fn obj_get(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
         if !self.enable_caching {
@@ -996,15 +986,6 @@ impl TaoOperations for CacheDecorator {
     }
 
     // Delegate other operations without caching
-    async fn obj_add(
-        &self,
-        otype: TaoType,
-        data: Vec<u8>,
-        owner_id: Option<TaoId>,
-    ) -> AppResult<TaoId> {
-        self.inner.obj_add(otype, data, owner_id).await
-    }
-
     async fn obj_exists(&self, id: TaoId) -> AppResult<bool> {
         self.inner.obj_exists(id).await
     }
@@ -1110,10 +1091,6 @@ impl TaoOperations for CacheDecorator {
     ) -> AppResult<Vec<TaoObject>> {
         self.inner.get_all_objects_of_type(otype, limit).await
     }
-
-    async fn get_graph_data(&self) -> AppResult<(Vec<TaoObject>, Vec<TaoAssociation>)> {
-        self.inner.get_graph_data().await
-    }
 }
 
 #[async_trait]
@@ -1159,18 +1136,18 @@ impl CircuitBreakerDecorator {
 
 #[async_trait]
 impl TaoOperations for CircuitBreakerDecorator {
-    async fn obj_get(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
-        self.execute_with_breaker(self.inner.obj_get(id)).await
+    async fn generate_id(&self, owner_id: Option<TaoId>) -> AppResult<TaoId> {
+        self.execute_with_breaker(self.inner.generate_id(owner_id))
+            .await
     }
 
-    async fn obj_add(
-        &self,
-        otype: TaoType,
-        data: Vec<u8>,
-        owner_id: Option<TaoId>,
-    ) -> AppResult<TaoId> {
-        self.execute_with_breaker(self.inner.obj_add(otype, data, owner_id))
+    async fn create_object(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<()> {
+        self.execute_with_breaker(self.inner.create_object(id, otype, data))
             .await
+    }
+
+    async fn obj_get(&self, id: TaoId) -> AppResult<Option<TaoObject>> {
+        self.execute_with_breaker(self.inner.obj_get(id)).await
     }
 
     async fn obj_update(&self, id: TaoId, data: Vec<u8>) -> AppResult<()> {
@@ -1301,10 +1278,6 @@ impl TaoOperations for CircuitBreakerDecorator {
     ) -> AppResult<Vec<TaoObject>> {
         self.execute_with_breaker(self.inner.get_all_objects_of_type(otype, limit))
             .await
-    }
-
-    async fn get_graph_data(&self) -> AppResult<(Vec<TaoObject>, Vec<TaoAssociation>)> {
-        self.execute_with_breaker(self.inner.get_graph_data()).await
     }
 }
 

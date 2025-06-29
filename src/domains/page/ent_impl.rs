@@ -9,10 +9,11 @@ use super::entity::EntPage;
 use crate::infrastructure::tao_core::{TaoOperations, TaoObject};
 use crate::infrastructure::tao::Tao;
 use thrift::protocol::{TCompactInputProtocol, TSerializable};
+use crate::infrastructure::global_tao::get_global_tao;
 use std::io::Cursor;
 use regex;
-use crate::domains::post::EntPost;
 use crate::domains::user::EntUser;
+use crate::domains::post::EntPost;
 
 impl Entity for EntPage {
     const ENTITY_TYPE: &'static str = "ent_page";
@@ -36,7 +37,8 @@ impl Entity for EntPage {
 
 impl EntPage {
     /// Create an entity from a TaoObject
-    pub async fn from_tao_object(tao: &Tao, tao_obj: TaoObject) -> AppResult<Option<EntPage>> {
+    pub async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntPage>> {
+        let tao = get_global_tao()?.clone();
         if tao_obj.otype != EntPage::ENTITY_TYPE {
             return Ok(None);
         }
@@ -55,13 +57,14 @@ impl EntPage {
     // Edge traversal methods
     
     /// Get followers via TAO edge traversal
-    pub async fn get_followers(&self, tao: &Tao) -> AppResult<Vec<EntUser>> {
+    pub async fn get_followers(&self) -> AppResult<Vec<EntUser>> {
+        let tao = get_global_tao()?.clone();
         let neighbor_ids = tao.get_neighbor_ids(self.id(), "followers".to_string(), Some(100)).await?;
 
         let mut results = Vec::new();
         for id in neighbor_ids {
             if let Some(tao_obj) = tao.obj_get(id).await? {
-                if let Some(entity) = EntUser::from_tao_object(tao, tao_obj).await? {
+                if let Some(entity) = EntUser::from_tao_object(tao_obj).await? {
                     results.push(entity);
                 }
             }
@@ -71,19 +74,21 @@ impl EntPage {
     }
     
     /// Count followers via TAO edge traversal
-    pub async fn count_followers(&self, tao: &Tao) -> AppResult<i64> {
+    pub async fn count_followers(&self) -> AppResult<i64> {
+        let tao = get_global_tao()?.clone();
         let count = tao.assoc_count(self.id(), "followers".to_string()).await?;
         Ok(count as i64)
     }
     
     /// Get posts via TAO edge traversal
-    pub async fn get_posts(&self, tao: &Tao) -> AppResult<Vec<EntPost>> {
+    pub async fn get_posts(&self) -> AppResult<Vec<EntPost>> {
+        let tao = get_global_tao()?.clone();
         let neighbor_ids = tao.get_neighbor_ids(self.id(), "posts".to_string(), Some(100)).await?;
 
         let mut results = Vec::new();
         for id in neighbor_ids {
             if let Some(tao_obj) = tao.obj_get(id).await? {
-                if let Some(entity) = EntPost::from_tao_object(tao, tao_obj).await? {
+                if let Some(entity) = EntPost::from_tao_object(tao_obj).await? {
                     results.push(entity);
                 }
             }
@@ -93,7 +98,8 @@ impl EntPage {
     }
     
     /// Count posts via TAO edge traversal
-    pub async fn count_posts(&self, tao: &Tao) -> AppResult<i64> {
+    pub async fn count_posts(&self) -> AppResult<i64> {
+        let tao = get_global_tao()?.clone();
         let count = tao.assoc_count(self.id(), "posts".to_string()).await?;
         Ok(count as i64)
     }

@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-// Temporary EntityType definition - will be generated later
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum EntityType {
     EntUser,
@@ -45,7 +45,7 @@ pub trait EntSchema: Send + Sync {
     where
         Self: Sized;
 
-    /// Define edges (relationships) for this entity  
+    /// Define edges (relationships) for this entity
     fn edges() -> Vec<EdgeDefinition>
     where
         Self: Sized;
@@ -268,7 +268,7 @@ pub enum EdgeType {
     From, // This entity is referenced by the relationship
 }
 
-/// Edge cardinality - relationship multiplicity  
+/// Edge cardinality - relationship multiplicity
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EdgeCardinality {
     OneToOne,

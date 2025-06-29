@@ -46,7 +46,7 @@ pub fn field_type_to_rust(field_type: &FieldType, optional: bool) -> String {
         FieldType::JSON => "String".to_string(), // JSON as string
         FieldType::Enum(_variants) => "String".to_string(), // Enum as string for simplicity
     };
-    
+
     if optional {
         format!("Option<{}>", base_type)
     } else {
@@ -88,11 +88,11 @@ pub fn is_required_field(optional: bool) -> &'static str {
 pub fn snake_to_camel(s: &str) -> String {
     let mut result = String::new();
     let mut chars = s.chars();
-    
+
     if let Some(first) = chars.next() {
         result.push(first.to_lowercase().next().unwrap());
     }
-    
+
     let mut capitalize_next = false;
     for c in chars {
         if c == '_' {
@@ -104,7 +104,7 @@ pub fn snake_to_camel(s: &str) -> String {
             result.push(c);
         }
     }
-    
+
     result
 }
 

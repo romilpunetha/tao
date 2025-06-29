@@ -1,16 +1,14 @@
 // Modular Code Generation System for TAO Ent Framework
 // This module provides a clean, maintainable code generation architecture
 
-pub mod thrift_generator;
-pub mod rust_generator;
 pub mod builder_generator;
 pub mod ent_generator;
+pub mod rust_generator;
+pub mod thrift_generator;
 pub mod utils;
 
+use crate::ent_framework::{EdgeDefinition, EntityType, FieldDefinition, SchemaRegistry};
 use std::collections::HashMap;
-use crate::ent_framework::{
-    FieldDefinition, EdgeDefinition, SchemaRegistry, EntityType
-};
 
 /// Main code generator orchestrator
 pub struct CodeGenerator {
@@ -19,9 +17,7 @@ pub struct CodeGenerator {
 
 impl CodeGenerator {
     pub fn new(registry: SchemaRegistry) -> Self {
-        Self {
-            registry,
-        }
+        Self { registry }
     }
 
     /// Generate all code for entities - modular pipeline
@@ -33,9 +29,9 @@ impl CodeGenerator {
         println!("✅ Cleaned up previous generated files");
 
         // Step 2: Validate schemas
-        self.registry.validate().map_err(|errors| {
-            format!("Schema validation failed:\n{}", errors.join("\n"))
-        })?;
+        self.registry
+            .validate()
+            .map_err(|errors| format!("Schema validation failed:\n{}", errors.join("\n")))?;
         println!("✅ Schema validation passed");
 
         // Step 3: Collect schemas from registry
@@ -88,7 +84,9 @@ impl CodeGenerator {
     }
 
     /// Collect schemas from registry
-    fn collect_schemas(&self) -> Result<HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>, String> {
+    fn collect_schemas(
+        &self,
+    ) -> Result<HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>, String> {
         let mut schemas = HashMap::new();
 
         for entity_type in self.registry.get_entity_types() {
@@ -120,18 +118,15 @@ impl CodeGenerator {
 
             if path.is_dir() {
                 // Remove generated files in each domain directory
-                let files_to_remove = vec![
-                    "entity.thrift",
-                    "entity.rs",
-                    "builder.rs",
-                    "ent_impl.rs"
-                ];
+                let files_to_remove =
+                    vec!["entity.thrift", "entity.rs", "builder.rs", "ent_impl.rs"];
 
                 for file_name in files_to_remove {
                     let file_path = path.join(file_name);
                     if file_path.exists() {
-                        fs::remove_file(&file_path)
-                            .map_err(|e| format!("Failed to remove {}: {}", file_path.display(), e))?;
+                        fs::remove_file(&file_path).map_err(|e| {
+                            format!("Failed to remove {}: {}", file_path.display(), e)
+                        })?;
                     }
                 }
             }
@@ -141,7 +136,10 @@ impl CodeGenerator {
     }
 
     /// Create domain directories
-    fn create_domain_directories(&self, schemas: &HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>) -> Result<(), String> {
+    fn create_domain_directories(
+        &self,
+        schemas: &HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>,
+    ) -> Result<(), String> {
         for entity_type in schemas.keys() {
             let domain_name = utils::entity_domain_name(entity_type);
             let domain_path = format!("src/domains/{}", domain_name);
@@ -154,7 +152,10 @@ impl CodeGenerator {
     }
 
     /// Generate domain module files
-    fn generate_domain_modules(&self, schemas: &HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>) -> Result<(), String> {
+    fn generate_domain_modules(
+        &self,
+        schemas: &HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>,
+    ) -> Result<(), String> {
         // Generate main domains mod.rs
         let mut domains_mod = String::from("// Generated domain modules\n// DO NOT EDIT\n\n");
 
@@ -186,7 +187,10 @@ impl CodeGenerator {
     }
 
     /// Compile Thrift files to generate Rust entity structs
-    fn compile_thrift_files(&self, schemas: &HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>) -> Result<(), String> {
+    fn compile_thrift_files(
+        &self,
+        schemas: &HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>,
+    ) -> Result<(), String> {
         // Check if thrift compiler is available
         let thrift_check = std::process::Command::new("thrift")
             .arg("--version")
@@ -217,7 +221,10 @@ impl CodeGenerator {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("Thrift compilation failed for {}: {}", thrift_file, stderr));
+                return Err(format!(
+                    "Thrift compilation failed for {}: {}",
+                    thrift_file, stderr
+                ));
             }
 
             // Move the generated file to entity.rs
@@ -231,10 +238,17 @@ impl CodeGenerator {
                         if let Ok(entry) = entry {
                             let file_name = entry.file_name();
                             if let Some(name) = file_name.to_str() {
-                                if name.ends_with(".rs") && name != "mod.rs" && name != "builder.rs" && name != "ent_impl.rs" {
+                                if name.ends_with(".rs")
+                                    && name != "mod.rs"
+                                    && name != "builder.rs"
+                                    && name != "ent_impl.rs"
+                                {
                                     // Found the generated thrift file, rename it to entity.rs
-                                    std::fs::rename(entry.path(), &generated_file)
-                                        .map_err(|e| format!("Failed to rename {} to entity.rs: {}", name, e))?;
+                                    std::fs::rename(entry.path(), &generated_file).map_err(
+                                        |e| {
+                                            format!("Failed to rename {} to entity.rs: {}", name, e)
+                                        },
+                                    )?;
                                     break;
                                 }
                             }
@@ -250,7 +264,10 @@ impl CodeGenerator {
     }
 
     /// Generate domain modules with entity.rs imports enabled
-    fn generate_domain_modules_with_entities(&self, schemas: &HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>) -> Result<(), String> {
+    fn generate_domain_modules_with_entities(
+        &self,
+        schemas: &HashMap<EntityType, (Vec<FieldDefinition>, Vec<EdgeDefinition>)>,
+    ) -> Result<(), String> {
         // Generate main domains mod.rs
         let mut domains_mod = String::from("// Generated domain modules\n// DO NOT EDIT\n\n");
 

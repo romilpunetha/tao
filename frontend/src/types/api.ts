@@ -13,10 +13,10 @@ export interface User {
   full_name?: string;
   bio?: string;
   profile_picture_url?: string;
-  created_time: number;
-  last_active_time?: number;
   is_verified: boolean;
   location?: string;
+  created_time?: number; // Optional as it might not be sent on creation
+  last_active_time?: number; // Optional
 }
 
 export interface Post {
@@ -86,6 +86,29 @@ export interface GraphEdge {
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+}
+
+// Backend API raw response types for graph
+export interface TaoObjectJson {
+  id: number;
+  otype: string;
+  data: any; // Use 'any' as it's a flexible JSON value
+  created_time: number;
+  updated_time: number;
+  version: number;
+}
+
+export interface TaoAssociationJson {
+  id1: number;
+  atype: string;
+  id2: number;
+  time: number;
+  data?: any; // Use 'any' as it's a flexible JSON value
+}
+
+export interface GraphDataResponse {
+  objects: TaoObjectJson[];
+  associations: TaoAssociationJson[];
 }
 
 // User statistics

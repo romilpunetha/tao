@@ -77,12 +77,12 @@ const AppContent: React.FC = () => {
 
   // API hooks
   const { data: healthStatus } = useHealthCheck();
-  const { 
-    data: graphData, 
-    isLoading: graphLoading, 
-    error: graphError, 
-    refetch: refetchGraph 
-  } = useGraphData(20, selectedUserId || 1);
+  const {
+    data: graphData,
+    isLoading: graphLoading,
+    error: graphError,
+    refetch: refetchGraph
+  } = useGraphData(); // Remove maxUsers and viewerId for now to fetch all data
   const { data: users = [], refetch: refetchUsers } = useUsers();
   const seedDataMutation = useSeedSampleData();
 
@@ -121,7 +121,7 @@ const AppContent: React.FC = () => {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             TAO Database - Social Graph Explorer
           </Typography>
-          
+
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Chip
               icon={<DashboardIcon />}
@@ -130,7 +130,7 @@ const AppContent: React.FC = () => {
               variant="outlined"
               size="small"
             />
-            
+
             <Button
               variant="outlined"
               color="inherit"
@@ -141,7 +141,7 @@ const AppContent: React.FC = () => {
             >
               Refresh
             </Button>
-            
+
             <Button
               variant="contained"
               color="secondary"
@@ -178,10 +178,10 @@ const AppContent: React.FC = () => {
                 onRefresh={handleRefreshGraph}
               />
             ) : (
-              <Paper sx={{ 
-                height: '100%', 
-                display: 'flex', 
-                alignItems: 'center', 
+              <Paper sx={{
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
                 flexDirection: 'column',
                 gap: 2,
@@ -231,7 +231,7 @@ const AppContent: React.FC = () => {
             <Typography variant="body2" color="text.secondary">
               🌐 TAO Database System - Inspired by Meta's TAO Architecture
             </Typography>
-            
+
             <Box sx={{ display: 'flex', gap: 2 }}>
               <Chip
                 size="small"

@@ -143,10 +143,12 @@ export class TaoApiService {
     if (maxUsers) params.max_users = maxUsers;
     if (viewerId) params.viewer_id = viewerId;
 
+    // Backend now directly returns GraphData
     const response = await api.get<ApiResponse<GraphData>>('/graph', { params });
     if (!response.data.success) {
       throw new Error(response.data.error || 'Failed to get graph data');
     }
+
     return response.data.data!;
   }
 

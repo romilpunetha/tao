@@ -2,13 +2,14 @@
 // Provides endpoints for creating users, relationships, and visualizing the graph
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Json},
     routing::{get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
@@ -16,14 +17,16 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
 
 use sqlx::postgres::PgPoolOptions;
-use tao_database::domains::user::{builder::EntUserBuilder, entity::EntUser}; // Separate import
+use tao_database::domains::user::entity::EntUser; // Separate import
 use tao_database::ent_framework::Entity;
 use tao_database::{
     error::{AppError, AppResult},
     infrastructure::{
         association_registry::AssociationRegistry,
         database::{DatabaseInterface, PostgresDatabase},
-        initialize_cache_default, initialize_metrics_default,
+        global_tao::{get_global_tao, set_global_tao}, // Import global_tao functions
+        initialize_cache_default,
+        initialize_metrics_default,
         query_router::{QueryRouterConfig, TaoQueryRouter},
         shard_topology::{ShardHealth, ShardInfo},
         tao::Tao,
@@ -32,7 +35,8 @@ use tao_database::{
     },
 };
 
-// use tao_database::data_seeder;
+// Import new graph models
+use tao_database::models::graph_models::{GraphData, GraphEdge, GraphNode};
 
 // API request/response types
 #[derive(Serialize, Deserialize)]
@@ -52,9 +56,12 @@ struct CreateRelationshipRequest {
 #[derive(Serialize, Deserialize)]
 struct UserResponse {
     id: TaoId,
-    name: Option<String>,
-    email: Option<String>,
+    username: String,
+    email: String,
+    full_name: Option<String>,
     bio: Option<String>,
+    is_verified: bool,
+    location: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -66,57 +73,19 @@ struct RelationshipResponse {
 }
 
 #[derive(Serialize, Deserialize)]
-struct GraphResponse {
-    users: Vec<UserResponse>,
-    relationships: Vec<RelationshipResponse>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct GraphDataResponse {
-    objects: Vec<TaoObjectJson>,
-    associations: Vec<TaoAssociationJson>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct TaoObjectJson {
-    id: TaoId,
-    otype: String,
-    data: serde_json::Value,
-    created_time: i64,
-    updated_time: i64,
-    version: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-struct TaoAssociationJson {
-    id1: TaoId,
-    atype: String,
-    id2: TaoId,
-    time: i64,
-    data: Option<serde_json::Value>,
-}
-
-#[derive(Serialize, Deserialize)]
 struct ApiResponse<T> {
     success: bool,
     data: Option<T>,
     error: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct GraphQueryParams {
-    limit: Option<u32>,
-}
-
-// Application state
+// Application state (empty as Tao is global)
 #[derive(Clone)]
-struct AppState {
-    tao: Arc<Tao>,
-}
+struct AppState {}
 
 // API Handlers
 async fn create_user(
-    State(state): State<AppState>,
+    State(_state): State<AppState>, // _state to indicate it's unused
     Json(request): Json<CreateUserRequest>,
 ) -> impl IntoResponse {
     info!("Creating user: {}", request.name);
@@ -128,7 +97,7 @@ async fn create_user(
         .bio(request.bio.unwrap_or("".to_string()))
         .is_verified(true);
 
-    match user_builder.save(&state.tao).await {
+    match user_builder.savex().await {
         Ok(user) => {
             info!(
                 "Created user: {} (ID: {})",
@@ -139,9 +108,12 @@ async fn create_user(
                 success: true,
                 data: Some(UserResponse {
                     id: user.id,
-                    name: user.full_name,
-                    email: Some(user.email),
+                    username: user.username,
+                    email: user.email,
+                    full_name: user.full_name,
                     bio: user.bio,
+                    is_verified: user.is_verified,
+                    location: user.location,
                 }),
                 error: None,
             };
@@ -159,10 +131,7 @@ async fn create_user(
     }
 }
 
-async fn create_relationship(
-    State(state): State<AppState>,
-    Json(request): Json<CreateRelationshipRequest>,
-) -> impl IntoResponse {
+async fn create_relationship(Json(request): Json<CreateRelationshipRequest>) -> impl IntoResponse {
     info!(
         "Creating relationship: {} -> {} ({})",
         request.from_user_id, request.to_user_id, request.relationship_type
@@ -175,7 +144,19 @@ async fn create_relationship(
         None,
     );
 
-    match state.tao.assoc_add(association.clone()).await {
+    let tao = match get_global_tao() {
+        Ok(t) => t.clone(),
+        Err(e) => {
+            warn!("Failed to get global TAO instance: {}", e);
+            let response = ApiResponse::<RelationshipResponse> {
+                success: false,
+                data: None,
+                error: Some(format!("Failed to get TAO: {}", e)),
+            };
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(response));
+        }
+    };
+    match tao.assoc_add(association.clone()).await {
         Ok(_) => {
             let response = ApiResponse {
                 success: true,
@@ -201,17 +182,20 @@ async fn create_relationship(
     }
 }
 
-async fn get_user(State(state): State<AppState>, Path(user_id): Path<TaoId>) -> impl IntoResponse {
-    let tao_ops_arc: Arc<dyn TaoOperations> = state.tao.clone();
-    match EntUser::gen_nullable(&tao_ops_arc, Some(user_id)).await {
+async fn get_user(Path(user_id): Path<TaoId>) -> impl IntoResponse {
+    // Tao operations are now accessed via get_global_tao()
+    match EntUser::gen_nullable(Some(user_id)).await {
         Ok(Some(user)) => {
             let response = ApiResponse {
                 success: true,
                 data: Some(UserResponse {
                     id: user.id,
-                    name: user.full_name,
-                    email: Some(user.email),
+                    username: user.username,
+                    email: user.email,
+                    full_name: user.full_name,
                     bio: user.bio,
+                    is_verified: user.is_verified,
+                    location: user.location,
                 }),
                 error: None,
             };
@@ -237,29 +221,20 @@ async fn get_user(State(state): State<AppState>, Path(user_id): Path<TaoId>) -> 
     }
 }
 
-async fn get_all_users(
-    State(state): State<AppState>,
-    Query(params): Query<GraphQueryParams>,
-) -> impl IntoResponse {
-    let limit = params.limit.unwrap_or(100);
-
-    match state
-        .tao
-        .get_all_objects_of_type("user".to_string(), Some(limit))
-        .await
-    {
+async fn get_all_users() -> impl IntoResponse {
+    match EntUser::gen_all().await {
         Ok(user_objs) => {
             let mut users = Vec::new();
-            for user_obj in user_objs {
-                if let Ok(user_data) = serde_json::from_slice::<serde_json::Value>(&user_obj.data) {
-                    let id = user_obj.id; // Added this line
-                    users.push(UserResponse {
-                        id,
-                        name: user_data["name"].as_str().map(|s| s.to_string()),
-                        email: user_data["email"].as_str().map(|s| s.to_string()),
-                        bio: user_data["bio"].as_str().map(|s| s.to_string()),
-                    });
-                }
+            for user in user_objs {
+                users.push(UserResponse {
+                    id: user.id,
+                    username: user.username,
+                    email: user.email,
+                    full_name: user.full_name,
+                    bio: user.bio,
+                    is_verified: user.is_verified,
+                    location: user.location,
+                });
             }
 
             let response = ApiResponse {
@@ -281,143 +256,103 @@ async fn get_all_users(
     }
 }
 
-async fn get_graph(
-    State(state): State<AppState>,
-    Query(params): Query<GraphQueryParams>,
-) -> (StatusCode, Json<ApiResponse<GraphResponse>>) {
-    let limit = params.limit.unwrap_or(100);
+async fn get_graph_data() -> impl IntoResponse {
+    info!("Fetching graph data.");
 
-    info!("Fetching graph data with limit: {}", limit);
-
-    let mut users = Vec::new();
-    let mut relationships = Vec::new();
-
-    // Fetch all users
-    let all_users = match state
-        .tao
-        .get_all_objects_of_type("user".to_string(), Some(limit))
-        .await
-    {
+    let users = match EntUser::gen_all().await {
         Ok(users) => users,
         Err(e) => {
-            let response = ApiResponse {
+            warn!("Failed to get all users for graph data: {}", e);
+            let response = ApiResponse::<GraphData> {
                 success: false,
                 data: None,
-                error: Some(format!("Failed to fetch users: {}", e)),
+                error: Some(format!("Failed to get graph data: {}", e)),
             };
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(response));
         }
     };
 
-    // Process users and fetch their relationships
-    for user_obj in all_users {
-        let id = user_obj.id;
-        if let Ok(user_data) = serde_json::from_slice::<serde_json::Value>(&user_obj.data) {
-            users.push(UserResponse {
-                id,
-                name: user_data["name"].as_str().map(|s| s.to_string()),
-                email: user_data["email"].as_str().map(|s| s.to_string()),
-                bio: user_data["bio"].as_str().map(|s| s.to_string()),
-            });
+    let mut graph_nodes = Vec::with_capacity(users.len());
+    let mut graph_edges = Vec::new();
+    let mut relationship_futures = Vec::new();
 
-            // Fetch relationships for this user
-            if let Ok(assocs) = state
-                .tao
-                .get_neighbor_ids(id, "friendship".to_string(), Some(limit))
-                .await
-            {
-                for neighbor_id in assocs {
-                    relationships.push(RelationshipResponse {
-                        id1: id,
-                        id2: neighbor_id,
-                        relationship_type: "friendship".to_string(),
-                        created_at: current_time_millis(),
-                    });
+    // Create nodes and collect relationship futures
+    for user in &users {
+        graph_nodes.push(GraphNode {
+            id: user.id.to_string(),
+            name: user
+                .full_name
+                .clone()
+                .unwrap_or_else(|| user.username.clone()),
+            node_type: EntUser::ENTITY_TYPE.to_string(),
+            verified: user.is_verified,
+        });
+
+        println!(
+            "User id : {}\nfollowers : {:?}\nfollowing : {:?}",
+            user.id,
+            user.get_friends().await,
+            user.get_following().await
+        );
+
+        // Collect futures for batch processing
+        relationship_futures.push(async move {
+            let user_id_str = user.id.to_string();
+            let mut edges = Vec::new();
+
+            // Get friends with error logging
+            match user.get_friends().await {
+                Ok(friends) => {
+                    for friend in friends {
+                        edges.push(GraphEdge {
+                            source: user_id_str.clone(),
+                            target: friend.id.to_string(),
+                            edge_type: "friendship".to_string(),
+                            weight: 1.0,
+                        });
+                    }
                 }
+                Err(e) => warn!("Failed to get friends for user {}: {}", user.id, e),
             }
-        }
+
+            // Get following with error logging
+            match user.get_following().await {
+                Ok(following) => {
+                    for followed in following {
+                        edges.push(GraphEdge {
+                            source: user_id_str.clone(),
+                            target: followed.id.to_string(),
+                            edge_type: "follows".to_string(),
+                            weight: 0.5,
+                        });
+                    }
+                }
+                Err(e) => warn!("Failed to get following for user {}: {}", user.id, e),
+            }
+
+            edges
+        });
+    }
+
+    // Execute all relationship queries concurrently
+    let edge_results = futures::future::join_all(relationship_futures).await;
+
+    println!("Edges : {:?}", edge_results);
+
+    // Flatten results into single edge vector
+    for edges in edge_results {
+        graph_edges.extend(edges);
     }
 
     let response = ApiResponse {
         success: true,
-        data: Some(GraphResponse {
-            users,
-            relationships,
+        data: Some(GraphData {
+            nodes: graph_nodes,
+            edges: graph_edges,
         }),
         error: None,
     };
-
     (StatusCode::OK, Json(response))
-}
-
-async fn get_graph_data(State(state): State<AppState>) -> impl IntoResponse {
-    info!("Fetching complete graph data from all shards");
-
-    match state.tao.get_graph_data().await {
-        Ok((objects, associations)) => {
-            let mut json_objects = Vec::new();
-            let mut json_associations = Vec::new();
-
-            // Convert objects to JSON format
-            for obj in objects {
-                let data_json = match serde_json::from_slice::<serde_json::Value>(&obj.data) {
-                    Ok(json) => json,
-                    Err(_) => serde_json::json!({ "raw": String::from_utf8_lossy(&obj.data) }),
-                };
-
-                json_objects.push(TaoObjectJson {
-                    id: obj.id,
-                    otype: obj.otype,
-                    data: data_json,
-                    created_time: obj.created_time,
-                    updated_time: obj.updated_time,
-                    version: obj.version,
-                });
-            }
-
-            // Convert associations to JSON format
-            for assoc in associations {
-                let data_json = if let Some(ref data) = assoc.data {
-                    match serde_json::from_slice::<serde_json::Value>(&data) {
-                        Ok(json) => Some(json),
-                        Err(_) => {
-                            Some(serde_json::json!({ "raw": String::from_utf8_lossy(&data) }))
-                        }
-                    }
-                } else {
-                    None
-                };
-
-                json_associations.push(TaoAssociationJson {
-                    id1: assoc.id1,
-                    atype: assoc.atype,
-                    id2: assoc.id2,
-                    time: assoc.time,
-                    data: data_json,
-                });
-            }
-
-            let response = ApiResponse {
-                success: true,
-                data: Some(GraphDataResponse {
-                    objects: json_objects,
-                    associations: json_associations,
-                }),
-                error: None,
-            };
-
-            (StatusCode::OK, Json(response))
-        }
-        Err(e) => {
-            warn!("Failed to fetch graph data: {}", e);
-            let response = ApiResponse::<GraphDataResponse> {
-                success: false,
-                data: None,
-                error: Some(format!("Failed to fetch graph data: {}", e)),
-            };
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response))
-        }
-    }
 }
 
 async fn serve_frontend() -> Html<&'static str> {
@@ -432,7 +367,7 @@ async fn health_check() -> impl IntoResponse {
     }))
 }
 
-async fn seed_data_handler(State(state): State<AppState>) -> impl IntoResponse {
+async fn seed_data_handler() -> impl IntoResponse {
     info!("Seeding sample data...");
 
     // Create sample users using EntUserBuilder
@@ -497,13 +432,12 @@ async fn seed_data_handler(State(state): State<AppState>) -> impl IntoResponse {
             .bio(bio.unwrap_or("").to_string())
             .is_verified(is_verified);
 
-        match user_builder.save(&state.tao).await {
+        match user_builder.savex().await {
             Ok(user) => {
-                info!("Created EntUser: {} (ID: {})", user.username, user.id);
                 users.push(user);
             }
             Err(e) => {
-                warn!("Failed to create EntUser {}: {}", name, e);
+                println!("Failed to create EntUser {}: {}", name, e);
                 let response = ApiResponse::<String> {
                     success: false,
                     data: None,
@@ -534,25 +468,24 @@ async fn seed_data_handler(State(state): State<AppState>) -> impl IntoResponse {
         for (from_idx, to_idx, rel_type) in relationships {
             if from_idx < users.len() && to_idx < users.len() {
                 let from_user = &users[from_idx];
-                let to_user_id = users[to_idx].id;
-
+                let to_user = &users[to_idx]; // Get the EntUser object, not just the ID
                 let result = match rel_type {
-                    "friendship" => from_user.add_friend(&state.tao, to_user_id).await,
-                    "follows" => from_user.add_following(&state.tao, to_user_id).await,
+                    "friendship" => from_user.add_friend(to_user.id).await,
+                    "follows" => from_user.add_following(to_user.id).await,
                     _ => Ok(()), // Should not happen with defined types
                 };
 
                 match result {
                     Ok(_) => {
-                        info!(
+                        println!(
                             "Created {} relationship between {} and {}",
-                            rel_type, from_user.id, to_user_id
+                            rel_type, from_user.id, to_user.id
                         );
                     }
                     Err(e) => {
                         warn!(
                             "Failed to create {} relationship between {} and {}: {}",
-                            rel_type, from_user.id, to_user_id, e
+                            rel_type, from_user.id, to_user.id, e
                         );
                     }
                 }
@@ -611,20 +544,20 @@ async fn main() -> AppResult<()> {
             load_factor: 0.0,
         };
         query_router.add_shard(shard_info, db_interface).await?;
-        info!("✅ Shard {} configured", i + 1);
+        println!("✅ Shard {} configured", i + 1);
     }
-    info!("✅ All shards configured");
+    println!("✅ All shards configured");
 
     // Create TAO with WAL
     let association_registry = Arc::new(AssociationRegistry::new());
 
     // Setup WAL
-    let wal_config = WalConfig::default();
-    let wal = Arc::new(TaoWriteAheadLog::new(wal_config, "/tmp/tao_web_wal").await?);
+    // let wal_config = WalConfig::default();
+    // let wal = Arc::new(TaoWriteAheadLog::new(wal_config, "/tmp/tao_web_wal").await?);
 
     // Initialize cache and metrics
-    let cache = initialize_cache_default().await?;
-    let metrics = initialize_metrics_default().await?;
+    // let cache = initialize_cache_default().await?;
+    // let metrics = initialize_metrics_default().await?;
 
     // Create TaoCore instance
     let tao_core = Arc::new(tao_database::infrastructure::tao_core::TaoCore::new(
@@ -633,11 +566,13 @@ async fn main() -> AppResult<()> {
     ));
 
     // Initialize TAO with all components
-    let tao = Arc::new(Tao::new(tao_core, wal, cache, metrics, false, false));
-    info!("✅ TAO initialized with production features");
+    let tao = Arc::new(Tao::minimal(tao_core));
+    println!("✅ TAO initialized with production features");
+
+    set_global_tao(tao).expect("Failed to set global TAO instance"); // Set global TAO
 
     // Application state
-    let app_state = AppState { tao };
+    let app_state = AppState {}; // Use global TAO
 
     // Build router with CORS for frontend
     let app = Router::new()
@@ -646,8 +581,7 @@ async fn main() -> AppResult<()> {
         .route("/api/users", get(get_all_users).post(create_user))
         .route("/api/users/{id}", get(get_user))
         .route("/api/relationships", post(create_relationship))
-        .route("/api/graph", get(get_graph))
-        .route("/api/graph-data", get(get_graph_data))
+        .route("/api/graph", get(get_graph_data))
         .route("/api/seed", post(seed_data_handler))
         .layer(
             ServiceBuilder::new().layer(

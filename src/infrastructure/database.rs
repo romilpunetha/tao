@@ -4,7 +4,6 @@
 use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use sqlx::postgres::{PgPool, Postgres};
 use sqlx::sqlite::Sqlite;
@@ -436,17 +435,11 @@ impl DatabaseInterface for PostgresDatabase {
     }
 
     async fn get_objects(&self, query: ObjectQuery) -> AppResult<ObjectQueryResult> {
-        let mut sql =
-            "SELECT id, otype, time_created, time_updated, data FROM objects WHERE id = ANY($1)"
+        let sql =
+            "SELECT id, otype, time_created, time_updated, data FROM objects WHERE otype = $1"
                 .to_string();
 
-        if query.otype.is_some() {
-            sql.push_str(" AND otype = $2");
-        }
-
-        sql.push_str(" ORDER BY id");
-
-        let mut query_builder = sqlx::query(&sql).bind(&query.ids);
+        let mut query_builder = sqlx::query(&sql).bind(&query.otype);
 
         if let Some(ref otype) = query.otype {
             query_builder = query_builder.bind(otype);
@@ -492,7 +485,6 @@ impl DatabaseInterface for PostgresDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create object with ID {}: {}", id, e)))?;
-
         Ok(())
     }
 

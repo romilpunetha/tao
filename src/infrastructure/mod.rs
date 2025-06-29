@@ -3,6 +3,7 @@ pub mod association_registry; // Manages association type mappings
 pub mod cache; // Basic caching functionality
 pub mod cache_layer; // Multi-tier caching
 pub mod database; // Database interface and implementations
+pub mod global_tao;
 pub mod id_generator; // ID generation system
 pub mod monitoring; // Metrics and monitoring
 pub mod query_router; // Query routing
@@ -14,7 +15,8 @@ pub mod tao_decorators;
 pub mod traits;
 pub mod viewer; // Viewer context
 pub mod wal_storage; // WAL file-based storage
-pub mod write_ahead_log; // Write-ahead log // Infrastructure traits // TAO decorator pattern implementations
+pub mod write_ahead_log; // Write-ahead log // Global TAO instance
+                         // Infrastructure traits // TAO decorator pattern implementations
 
 // Re-export core infrastructure components
 pub use cache::*;

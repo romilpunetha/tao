@@ -1,6 +1,6 @@
 // Thrift file generation module
-use crate::ent_framework::{FieldDefinition, EntityType, SchemaRegistry, FieldType};
 use super::utils;
+use crate::ent_framework::{EntityType, FieldDefinition, FieldType, SchemaRegistry};
 
 pub struct ThriftGenerator<'a> {
     _registry: &'a SchemaRegistry,
@@ -8,54 +8,71 @@ pub struct ThriftGenerator<'a> {
 
 impl<'a> ThriftGenerator<'a> {
     pub fn new(registry: &'a SchemaRegistry) -> Self {
-        Self { _registry: registry }
+        Self {
+            _registry: registry,
+        }
     }
 
     /// Generate pure Thrift structure file
-    pub fn generate_thrift_file(&self, entity_type: &EntityType, fields: &[FieldDefinition]) -> Result<(), String> {
+    pub fn generate_thrift_file(
+        &self,
+        entity_type: &EntityType,
+        fields: &[FieldDefinition],
+    ) -> Result<(), String> {
         let domain_name = utils::entity_domain_name(entity_type);
         let _struct_name = utils::entity_struct_name(entity_type);
         let thrift_path = format!("src/domains/{}/entity.thrift", domain_name);
-        
+
         let mut thrift_content = String::new();
-        
+
         // Thrift header
-        thrift_content.push_str(&format!("namespace rs tao_database.domains.{}\n\n", domain_name));
-        thrift_content.push_str(&utils::generate_file_header("Thrift definition", entity_type));
+        thrift_content.push_str(&format!(
+            "namespace rs tao_database.domains.{}\n\n",
+            domain_name
+        ));
+        thrift_content.push_str(&utils::generate_file_header(
+            "Thrift definition",
+            entity_type,
+        ));
         thrift_content.push_str("include \"../../core/tao.thrift\"\n\n");
-        
+
         // Generate field validation typedefs
         thrift_content.push_str(&self.generate_field_typedefs(entity_type, fields)?);
-        
+
         // Generate validation exception
         thrift_content.push_str(&self.generate_validation_exception()?);
-        
+
         // Generate pure struct (no functions allowed in Thrift)
         thrift_content.push_str(&self.generate_thrift_struct(entity_type, fields)?);
-        
+
         // Write to file
         std::fs::write(&thrift_path, thrift_content)
             .map_err(|e| format!("Failed to write Thrift file {}: {}", thrift_path, e))?;
-        
+
         Ok(())
     }
 
     /// Generate field validation typedefs
-    fn generate_field_typedefs(&self, entity_type: &EntityType, fields: &[FieldDefinition]) -> Result<String, String> {
+    fn generate_field_typedefs(
+        &self,
+        entity_type: &EntityType,
+        fields: &[FieldDefinition],
+    ) -> Result<String, String> {
         let mut typedefs = String::new();
-        
+
         typedefs.push_str("// Field validation typedefs\n");
         for field in fields {
             if field.field_type == FieldType::String {
-                let typedef_name = format!("{}_{}", 
-                    utils::entity_struct_name(entity_type).to_uppercase(), 
+                let typedef_name = format!(
+                    "{}_{}",
+                    utils::entity_struct_name(entity_type).to_uppercase(),
                     field.name.to_uppercase()
                 );
                 typedefs.push_str(&format!("typedef string {}\n", typedef_name));
             }
         }
         typedefs.push_str("\n");
-        
+
         Ok(typedefs)
     }
 
@@ -67,38 +84,46 @@ exception ValidationException {
     2: optional string field,
 }
 
-"#.to_string())
+"#
+        .to_string())
     }
 
     /// Generate the main Thrift struct
-    fn generate_thrift_struct(&self, entity_type: &EntityType, fields: &[FieldDefinition]) -> Result<String, String> {
+    fn generate_thrift_struct(
+        &self,
+        entity_type: &EntityType,
+        fields: &[FieldDefinition],
+    ) -> Result<String, String> {
         let struct_name = utils::entity_struct_name(entity_type);
         let mut struct_def = format!("struct {} {{\n", struct_name);
-        
+
         // Always add ID field first
         struct_def.push_str("    1: required i64 id,\n");
-        
+
         // Add other fields starting from field number 2
         for (index, field) in fields.iter().enumerate() {
             // Skip ID field if it exists in the schema (we already added it)
             if field.name == "id" {
                 continue;
             }
-            
+
             let field_num = utils::generate_field_number(index + 1); // +1 because id takes field 1
             let required_str = utils::is_required_field(field.optional);
             let thrift_type = utils::field_type_to_thrift(&field.field_type);
-            
-            struct_def.push_str(&format!("    {}: {} {} {},\n", 
-                field_num, required_str, thrift_type, field.name));
+
+            struct_def.push_str(&format!(
+                "    {}: {} {} {},\n",
+                field_num, required_str, thrift_type, field.name
+            ));
         }
-        
+
         struct_def.push_str("}\n\n");
-        
+
         // Add comment about pure structure
         struct_def.push_str("// Pure structure definition - no functions allowed in Thrift\n");
-        struct_def.push_str("// Functions will be generated by codegen and implemented in Rust\n\n");
-        
+        struct_def
+            .push_str("// Functions will be generated by codegen and implemented in Rust\n\n");
+
         Ok(struct_def)
     }
 }

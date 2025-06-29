@@ -16,11 +16,11 @@ pub mod infrastructure;
 pub mod schemas;
 
 pub mod domains;
-
+pub mod models; // Added for graph models
 
 // Common utilities
-pub mod error;
 pub mod data_seeder;
+pub mod error;
 
 // Re-exports for convenience
 pub use error::{AppError, AppResult};

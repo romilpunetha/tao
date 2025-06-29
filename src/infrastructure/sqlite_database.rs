@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::{
     AssocQuery, AssocQueryResult, Association, AssociationType, DatabaseInterface,
-    DatabaseTransaction, Object, ObjectId, ObjectQuery, ObjectQueryResult, ObjectType, Timestamp,
+    DatabaseTransaction, Object, ObjectId, ObjectQuery, ObjectQueryResult, ObjectType,
 };
 
 /// SQLite implementation of database interface for in-memory testing

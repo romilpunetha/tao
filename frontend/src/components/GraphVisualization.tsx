@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { 
-  Box, 
-  Paper, 
-  Typography, 
-  CircularProgress, 
+import {
+  Box,
+  Paper,
+  Typography,
+  CircularProgress,
   Alert,
   Tooltip,
   IconButton,
@@ -79,6 +79,9 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
     // Prepare data
     const nodes: D3Node[] = (graphData.nodes || []).map(d => ({ ...d }));
     const edges: D3Edge[] = (graphData.edges || []).map(d => ({ ...d }));
+
+    console.log("GraphVisualization: Nodes received:", nodes);
+    console.log("GraphVisualization: Edges received:", edges);
 
     // Create simulation
     const simulation = d3.forceSimulation<D3Node>(nodes)
@@ -166,10 +169,10 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
       .on('mouseover', function(event, d) {
         // Highlight connected edges
         link
-          .style('opacity', l => 
+          .style('opacity', l =>
             (l.source as D3Node).id === d.id || (l.target as D3Node).id === d.id ? 1 : 0.2
           );
-        
+
         // Scale up the node
         d3.select(this)
           .transition()
@@ -179,7 +182,7 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
       .on('mouseout', function() {
         // Reset edge opacity
         link.style('opacity', 0.7);
-        
+
         // Reset node size
         d3.select(this)
           .transition()
@@ -311,9 +314,9 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
   return (
     <Paper sx={{ height: '100%', position: 'relative', overflow: 'hidden' }}>
       {/* Header */}
-      <Box sx={{ 
-        p: 2, 
-        borderBottom: 1, 
+      <Box sx={{
+        p: 2,
+        borderBottom: 1,
         borderColor: 'divider',
         display: 'flex',
         alignItems: 'center',
@@ -323,8 +326,8 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
           <Typography variant="h6">
             Social Graph Visualization
           </Typography>
-          <Chip 
-            size="small" 
+          <Chip
+            size="small"
             label={`${graphData?.nodes?.length || 0} nodes, ${graphData?.edges?.length || 0} edges`}
             color="primary"
             variant="outlined"
@@ -336,7 +339,7 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
             variant="outlined"
           />
         </Box>
-        
+
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Tooltip title="Zoom In">
             <IconButton size="small" onClick={handleZoomIn}>
@@ -379,7 +382,7 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
             <CircularProgress />
           </Box>
         )}
-        
+
         <svg
           ref={svgRef}
           width="100%"
@@ -389,10 +392,10 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
       </Box>
 
       {/* Instructions */}
-      <Box sx={{ 
-        position: 'absolute', 
-        bottom: 16, 
-        left: 16, 
+      <Box sx={{
+        position: 'absolute',
+        bottom: 16,
+        left: 16,
         backgroundColor: 'rgba(255, 255, 255, 0.9)',
         p: 1,
         borderRadius: 1,
