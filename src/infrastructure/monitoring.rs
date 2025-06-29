@@ -1,15 +1,15 @@
 // Production-grade Monitoring and Observability
 // Implements comprehensive metrics, tracing, and health monitoring
 
+use crate::error::AppResult;
+use crate::infrastructure::tao_core::TaoId;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
-use serde::{Serialize, Deserialize};
 use tracing::{info, instrument};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use crate::error::AppResult;
-use crate::infrastructure::tao_core::TaoId;
 
 /// Comprehensive metrics collector
 #[derive(Debug)]
@@ -217,7 +217,8 @@ impl MetricsCollector {
         let duration_ms = duration.as_millis() as f64;
         self.update_histogram(&mut metrics.response_times, duration_ms);
 
-        let endpoint_metrics = metrics.requests_per_endpoint
+        let endpoint_metrics = metrics
+            .requests_per_endpoint
             .entry(endpoint.to_string())
             .or_insert_with(EndpointMetrics::default);
 
@@ -229,8 +230,9 @@ impl MetricsCollector {
         }
 
         // Update running average (simplified)
-        endpoint_metrics.avg_response_time_ms =
-            (endpoint_metrics.avg_response_time_ms * (endpoint_metrics.total_calls - 1) as f64 + duration_ms)
+        endpoint_metrics.avg_response_time_ms = (endpoint_metrics.avg_response_time_ms
+            * (endpoint_metrics.total_calls - 1) as f64
+            + duration_ms)
             / endpoint_metrics.total_calls as f64;
 
         endpoint_metrics.last_called = Some(SystemTime::now());
@@ -238,7 +240,14 @@ impl MetricsCollector {
 
     /// Record a database query
     #[instrument(skip(self, query))]
-    pub async fn record_database_query(&self, query_type: &str, query: &str, duration: Duration, success: bool, rows_affected: u64) {
+    pub async fn record_database_query(
+        &self,
+        query_type: &str,
+        query: &str,
+        duration: Duration,
+        success: bool,
+        rows_affected: u64,
+    ) {
         let mut metrics = self.database_metrics.write().await;
 
         metrics.total_queries += 1;
@@ -252,7 +261,8 @@ impl MetricsCollector {
         self.update_histogram(&mut metrics.query_times, duration_ms);
 
         // Track by query type
-        let query_metrics = metrics.queries_by_type
+        let query_metrics = metrics
+            .queries_by_type
             .entry(query_type.to_string())
             .or_insert_with(QueryTypeMetrics::default);
 
@@ -272,7 +282,7 @@ impl MetricsCollector {
                 query: query.to_string(),
                 duration_ms,
                 timestamp: SystemTime::now(),
-                user_id: None, // Would be extracted from context
+                user_id: None,              // Would be extracted from context
                 parameters: "".to_string(), // Would include actual parameters
             });
         }
@@ -284,10 +294,11 @@ impl MetricsCollector {
         let mut metrics = self.cache_metrics.write().await;
 
         // Update average lookup time
-        let total_lookups = metrics.l1_hits + metrics.l1_misses + metrics.l2_hits + metrics.l2_misses;
+        let total_lookups =
+            metrics.l1_hits + metrics.l1_misses + metrics.l2_hits + metrics.l2_misses;
         if total_lookups > 0 {
-            metrics.avg_lookup_time_ms =
-                (metrics.avg_lookup_time_ms * (total_lookups - 1) as f64 + lookup_time.as_millis() as f64)
+            metrics.avg_lookup_time_ms = (metrics.avg_lookup_time_ms * (total_lookups - 1) as f64
+                + lookup_time.as_millis() as f64)
                 / total_lookups as f64;
         }
 
@@ -454,35 +465,55 @@ impl MetricsCollector {
     }
 
     // System metric collection helpers (would use real system APIs in production)
-    async fn get_cpu_usage(&self) -> f64 { 0.0 }
-    async fn get_memory_usage(&self) -> u64 { 0 }
-    async fn get_memory_percentage(&self) -> f64 { 0.0 }
-    async fn get_disk_usage(&self) -> u64 { 0 }
-    async fn get_open_fds(&self) -> u64 { 0 }
-    async fn get_uptime(&self) -> u64 { 0 }
+    async fn get_cpu_usage(&self) -> f64 {
+        0.0
+    }
+    async fn get_memory_usage(&self) -> u64 {
+        0
+    }
+    async fn get_memory_percentage(&self) -> f64 {
+        0.0
+    }
+    async fn get_disk_usage(&self) -> u64 {
+        0
+    }
+    async fn get_open_fds(&self) -> u64 {
+        0
+    }
+    async fn get_uptime(&self) -> u64 {
+        0
+    }
 
     // Health check helpers
-    async fn check_database_health(&self) -> ServiceStatus { ServiceStatus::Healthy }
-    async fn check_cache_health(&self) -> ServiceStatus { ServiceStatus::Healthy }
-    async fn check_query_router_health(&self) -> ServiceStatus { ServiceStatus::Healthy }
-    async fn check_wal_health(&self) -> ServiceStatus { ServiceStatus::Healthy }
+    async fn check_database_health(&self) -> ServiceStatus {
+        ServiceStatus::Healthy
+    }
+    async fn check_cache_health(&self) -> ServiceStatus {
+        ServiceStatus::Healthy
+    }
+    async fn check_query_router_health(&self) -> ServiceStatus {
+        ServiceStatus::Healthy
+    }
+    async fn check_wal_health(&self) -> ServiceStatus {
+        ServiceStatus::Healthy
+    }
 
     fn determine_overall_status(&self, health: &HealthStatus) -> ServiceStatus {
         // Simple logic: if any critical component is unhealthy, overall is unhealthy
-        if matches!(health.database_status, ServiceStatus::Unhealthy) ||
-           matches!(health.query_router_status, ServiceStatus::Unhealthy) {
+        if matches!(health.database_status, ServiceStatus::Unhealthy)
+            || matches!(health.query_router_status, ServiceStatus::Unhealthy)
+        {
             ServiceStatus::Unhealthy
-        } else if matches!(health.database_status, ServiceStatus::Degraded) ||
-                  matches!(health.cache_status, ServiceStatus::Degraded) ||
-                  matches!(health.query_router_status, ServiceStatus::Degraded) {
+        } else if matches!(health.database_status, ServiceStatus::Degraded)
+            || matches!(health.cache_status, ServiceStatus::Degraded)
+            || matches!(health.query_router_status, ServiceStatus::Degraded)
+        {
             ServiceStatus::Degraded
         } else {
             ServiceStatus::Healthy
         }
     }
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsSnapshot {
@@ -500,8 +531,7 @@ pub fn initialize_monitoring() -> AppResult<Arc<MetricsCollector>> {
     // Initialize tracing subscriber
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

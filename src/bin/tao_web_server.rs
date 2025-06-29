@@ -15,22 +15,22 @@ use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
 
+use sqlx::postgres::PgPoolOptions;
+use tao_database::domains::user::{builder::EntUserBuilder, entity::EntUser}; // Separate import
+use tao_database::ent_framework::Entity;
 use tao_database::{
     error::{AppError, AppResult},
     infrastructure::{
         association_registry::AssociationRegistry,
         database::{DatabaseInterface, PostgresDatabase},
+        initialize_cache_default, initialize_metrics_default,
         query_router::{QueryRouterConfig, TaoQueryRouter},
         shard_topology::{ShardHealth, ShardInfo},
-        tao_core::{TaoId, TaoOperations, create_tao_association, current_time_millis},
         tao::Tao,
-        write_ahead_log::{WalConfig, TaoWriteAheadLog},
-        initialize_cache_default,
-        initialize_metrics_default,
+        tao_core::{create_tao_association, current_time_millis, TaoId, TaoOperations},
+        write_ahead_log::{TaoWriteAheadLog, WalConfig},
     },
 };
-use tao_database::domains::user::{builder::EntUserBuilder, entity::EntUser}; // Separate import
-use sqlx::postgres::PgPoolOptions;
 
 // use tao_database::data_seeder;
 
@@ -52,8 +52,8 @@ struct CreateRelationshipRequest {
 #[derive(Serialize, Deserialize)]
 struct UserResponse {
     id: TaoId,
-    name: String,
-    email: String,
+    name: Option<String>,
+    email: Option<String>,
     bio: Option<String>,
 }
 
@@ -121,23 +121,27 @@ async fn create_user(
 ) -> impl IntoResponse {
     info!("Creating user: {}", request.name);
 
-    // Create user data as JSON
-    let user_data = serde_json::json!({
-        "name": request.name,
-        "email": request.email,
-        "bio": request.bio,
-        "created_at": current_time_millis()
-    });
+    let user_builder = EntUser::create()
+        .username(request.name.to_lowercase().replace(" ", "_"))
+        .email(request.email.clone())
+        .full_name(request.name.clone())
+        .bio(request.bio.unwrap_or("".to_string()))
+        .is_verified(true);
 
-    match state.tao.obj_add("user".to_string(), user_data.to_string().into_bytes(), None).await {
-        Ok(user_id) => {
+    match user_builder.save(&state.tao).await {
+        Ok(user) => {
+            info!(
+                "Created user: {} (ID: {})",
+                user.full_name.as_deref().unwrap_or("Unknown"), // Handle Option<String> for logging
+                user.id
+            );
             let response = ApiResponse {
                 success: true,
                 data: Some(UserResponse {
-                    id: user_id,
-                    name: request.name,
-                    email: request.email,
-                    bio: request.bio,
+                    id: user.id,
+                    name: user.full_name,
+                    email: Some(user.email),
+                    bio: user.bio,
                 }),
                 error: None,
             };
@@ -159,8 +163,10 @@ async fn create_relationship(
     State(state): State<AppState>,
     Json(request): Json<CreateRelationshipRequest>,
 ) -> impl IntoResponse {
-    info!("Creating relationship: {} -> {} ({})",
-          request.from_user_id, request.to_user_id, request.relationship_type);
+    info!(
+        "Creating relationship: {} -> {} ({})",
+        request.from_user_id, request.to_user_id, request.relationship_type
+    );
 
     let association = create_tao_association(
         request.from_user_id,
@@ -195,33 +201,21 @@ async fn create_relationship(
     }
 }
 
-async fn get_user(
-    State(state): State<AppState>,
-    Path(user_id): Path<TaoId>,
-) -> impl IntoResponse {
-    match state.tao.obj_get(user_id).await {
-        Ok(Some(user_obj)) => {
-            // Parse user data from stored JSON
-            if let Ok(user_data) = serde_json::from_slice::<serde_json::Value>(&user_obj.data) {
-                let response = ApiResponse {
-                    success: true,
-                    data: Some(UserResponse {
-                        id: user_id,
-                        name: user_data["name"].as_str().unwrap_or("Unknown").to_string(),
-                        email: user_data["email"].as_str().unwrap_or("").to_string(),
-                        bio: user_data["bio"].as_str().map(|s| s.to_string()),
-                    }),
-                    error: None,
-                };
-                (StatusCode::OK, Json(response))
-            } else {
-                let response = ApiResponse::<UserResponse> {
-                    success: false,
-                    data: None,
-                    error: Some("Invalid user data format".to_string()),
-                };
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(response))
-            }
+async fn get_user(State(state): State<AppState>, Path(user_id): Path<TaoId>) -> impl IntoResponse {
+    let tao_ops_arc: Arc<dyn TaoOperations> = state.tao.clone();
+    match EntUser::gen_nullable(&tao_ops_arc, Some(user_id)).await {
+        Ok(Some(user)) => {
+            let response = ApiResponse {
+                success: true,
+                data: Some(UserResponse {
+                    id: user.id,
+                    name: user.full_name,
+                    email: Some(user.email),
+                    bio: user.bio,
+                }),
+                error: None,
+            };
+            (StatusCode::OK, Json(response))
         }
         Ok(None) => {
             let response = ApiResponse::<UserResponse> {
@@ -249,15 +243,20 @@ async fn get_all_users(
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(100);
 
-    match state.tao.get_all_objects_of_type("user".to_string(), Some(limit)).await {
+    match state
+        .tao
+        .get_all_objects_of_type("user".to_string(), Some(limit))
+        .await
+    {
         Ok(user_objs) => {
             let mut users = Vec::new();
             for user_obj in user_objs {
                 if let Ok(user_data) = serde_json::from_slice::<serde_json::Value>(&user_obj.data) {
+                    let id = user_obj.id; // Added this line
                     users.push(UserResponse {
-                        id: user_obj.id,
-                        name: user_data["name"].as_str().unwrap_or("Unknown").to_string(),
-                        email: user_data["email"].as_str().unwrap_or("").to_string(),
+                        id,
+                        name: user_data["name"].as_str().map(|s| s.to_string()),
+                        email: user_data["email"].as_str().map(|s| s.to_string()),
                         bio: user_data["bio"].as_str().map(|s| s.to_string()),
                     });
                 }
@@ -294,7 +293,11 @@ async fn get_graph(
     let mut relationships = Vec::new();
 
     // Fetch all users
-    let all_users = match state.tao.get_all_objects_of_type("user".to_string(), Some(limit)).await {
+    let all_users = match state
+        .tao
+        .get_all_objects_of_type("user".to_string(), Some(limit))
+        .await
+    {
         Ok(users) => users,
         Err(e) => {
             let response = ApiResponse {
@@ -312,13 +315,17 @@ async fn get_graph(
         if let Ok(user_data) = serde_json::from_slice::<serde_json::Value>(&user_obj.data) {
             users.push(UserResponse {
                 id,
-                name: user_data["name"].as_str().unwrap_or("Unknown").to_string(),
-                email: user_data["email"].as_str().unwrap_or("").to_string(),
+                name: user_data["name"].as_str().map(|s| s.to_string()),
+                email: user_data["email"].as_str().map(|s| s.to_string()),
                 bio: user_data["bio"].as_str().map(|s| s.to_string()),
             });
 
             // Fetch relationships for this user
-            if let Ok(assocs) = state.tao.get_neighbor_ids(id, "friendship".to_string(), Some(limit)).await {
+            if let Ok(assocs) = state
+                .tao
+                .get_neighbor_ids(id, "friendship".to_string(), Some(limit))
+                .await
+            {
                 for neighbor_id in assocs {
                     relationships.push(RelationshipResponse {
                         id1: id,
@@ -333,16 +340,17 @@ async fn get_graph(
 
     let response = ApiResponse {
         success: true,
-        data: Some(GraphResponse { users, relationships }),
+        data: Some(GraphResponse {
+            users,
+            relationships,
+        }),
         error: None,
     };
 
     (StatusCode::OK, Json(response))
 }
 
-async fn get_graph_data(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn get_graph_data(State(state): State<AppState>) -> impl IntoResponse {
     info!("Fetching complete graph data from all shards");
 
     match state.tao.get_graph_data().await {
@@ -354,7 +362,7 @@ async fn get_graph_data(
             for obj in objects {
                 let data_json = match serde_json::from_slice::<serde_json::Value>(&obj.data) {
                     Ok(json) => json,
-                    Err(_) => serde_json::json!({ "raw": String::from_utf8_lossy(&obj.data) })
+                    Err(_) => serde_json::json!({ "raw": String::from_utf8_lossy(&obj.data) }),
                 };
 
                 json_objects.push(TaoObjectJson {
@@ -372,7 +380,9 @@ async fn get_graph_data(
                 let data_json = if let Some(ref data) = assoc.data {
                     match serde_json::from_slice::<serde_json::Value>(&data) {
                         Ok(json) => Some(json),
-                        Err(_) => Some(serde_json::json!({ "raw": String::from_utf8_lossy(&data) }))
+                        Err(_) => {
+                            Some(serde_json::json!({ "raw": String::from_utf8_lossy(&data) }))
+                        }
                     }
                 } else {
                     None
@@ -422,21 +432,59 @@ async fn health_check() -> impl IntoResponse {
     }))
 }
 
-async fn seed_data_handler(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn seed_data_handler(State(state): State<AppState>) -> impl IntoResponse {
     info!("Seeding sample data...");
 
     // Create sample users using EntUserBuilder
     let sample_users_data = vec![
-        ("Grace Hopper", "grace@example.com", Some("Full-stack developer and open source contributor"), true),
-        ("Alice Johnson", "alice@example.com", Some("Software engineer who loves hiking and photography"), true),
-        ("Bob Smith", "bob@example.com", Some("Product manager with a passion for cycling"), true),
-        ("Charlie Brown", "charlie@example.com", Some("Designer focused on user experience"), false),
-        ("Diana Prince", "diana@example.com", Some("Data scientist exploring machine learning"), true),
-        ("Eve Wilson", "eve@example.com", Some("Marketing specialist who enjoys cooking"), false),
-        ("Frank Castle", "frank@example.com", Some("DevOps engineer with security expertise"), true),
-        ("Henry Ford", "henry@example.com", Some("Engineering manager leading innovative projects"), false),
+        (
+            "Grace Hopper",
+            "grace@example.com",
+            Some("Full-stack developer and open source contributor"),
+            true,
+        ),
+        (
+            "Alice Johnson",
+            "alice@example.com",
+            Some("Software engineer who loves hiking and photography"),
+            true,
+        ),
+        (
+            "Bob Smith",
+            "bob@example.com",
+            Some("Product manager with a passion for cycling"),
+            true,
+        ),
+        (
+            "Charlie Brown",
+            "charlie@example.com",
+            Some("Designer focused on user experience"),
+            false,
+        ),
+        (
+            "Diana Prince",
+            "diana@example.com",
+            Some("Data scientist exploring machine learning"),
+            true,
+        ),
+        (
+            "Eve Wilson",
+            "eve@example.com",
+            Some("Marketing specialist who enjoys cooking"),
+            false,
+        ),
+        (
+            "Frank Castle",
+            "frank@example.com",
+            Some("DevOps engineer with security expertise"),
+            true,
+        ),
+        (
+            "Henry Ford",
+            "henry@example.com",
+            Some("Engineering manager leading innovative projects"),
+            false,
+        ),
     ];
 
     let mut users: Vec<EntUser> = Vec::new();
@@ -496,10 +544,16 @@ async fn seed_data_handler(
 
                 match result {
                     Ok(_) => {
-                        info!("Created {} relationship between {} and {}", rel_type, from_user.id, to_user_id);
+                        info!(
+                            "Created {} relationship between {} and {}",
+                            rel_type, from_user.id, to_user_id
+                        );
                     }
                     Err(e) => {
-                        warn!("Failed to create {} relationship between {} and {}: {}", rel_type, from_user.id, to_user_id, e);
+                        warn!(
+                            "Failed to create {} relationship between {} and {}: {}",
+                            rel_type, from_user.id, to_user_id, e
+                        );
                     }
                 }
             }
@@ -508,7 +562,10 @@ async fn seed_data_handler(
 
     let response = ApiResponse {
         success: true,
-        data: Some(format!("Successfully seeded {} users with relationships", users.len())),
+        data: Some(format!(
+            "Successfully seeded {} users with relationships",
+            users.len()
+        )),
         error: None,
     };
     (StatusCode::OK, Json(response))
@@ -516,8 +573,6 @@ async fn seed_data_handler(
 
 #[tokio::main]
 async fn main() -> AppResult<()> {
-
-
     info!("🚀 Starting TAO Web Server...");
 
     // Initialize databases for sharding
@@ -535,13 +590,19 @@ async fn main() -> AppResult<()> {
             .max_connections(10) // Example value, adjust as needed
             .connect(url)
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to connect to database for shard {}: {}", i + 1, e)))?;
+            .map_err(|e| {
+                AppError::DatabaseError(format!(
+                    "Failed to connect to database for shard {}: {}",
+                    i + 1,
+                    e
+                ))
+            })?;
         let database = PostgresDatabase::new(pool);
         database.initialize().await?; // Initialize tables for this specific shard
         let db_interface: Arc<dyn DatabaseInterface> = Arc::new(database);
 
         let shard_info = ShardInfo {
-            shard_id: (i + 1) as u16,
+            shard_id: i as u16,
             connection_string: url.clone(),
             region: "local".to_string(),
             health: ShardHealth::Healthy,
@@ -566,7 +627,10 @@ async fn main() -> AppResult<()> {
     let metrics = initialize_metrics_default().await?;
 
     // Create TaoCore instance
-    let tao_core = Arc::new(tao_database::infrastructure::tao_core::TaoCore::new(query_router.clone(), association_registry.clone()));
+    let tao_core = Arc::new(tao_database::infrastructure::tao_core::TaoCore::new(
+        query_router.clone(),
+        association_registry.clone(),
+    ));
 
     // Initialize TAO with all components
     let tao = Arc::new(Tao::new(tao_core, wal, cache, metrics, false, false));
@@ -578,7 +642,7 @@ async fn main() -> AppResult<()> {
     // Build router with CORS for frontend
     let app = Router::new()
         .route("/", get(serve_frontend))
-        .route("/health", get(health_check))
+        .route("/api/health", get(health_check))
         .route("/api/users", get(get_all_users).post(create_user))
         .route("/api/users/{id}", get(get_user))
         .route("/api/relationships", post(create_relationship))
@@ -586,13 +650,12 @@ async fn main() -> AppResult<()> {
         .route("/api/graph-data", get(get_graph_data))
         .route("/api/seed", post(seed_data_handler))
         .layer(
-            ServiceBuilder::new()
-                .layer(
-                    CorsLayer::new()
-                        .allow_origin(Any)
-                        .allow_methods(Any)
-                        .allow_headers(Any)
-                )
+            ServiceBuilder::new().layer(
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any),
+            ),
         )
         .with_state(app_state);
 

@@ -1,13 +1,13 @@
 // Ent Hooks System - Middleware pattern for entity mutations
 // Equivalent to Meta's Ent hooks for pre/post operation logic
 
-use std::collections::HashMap;
-use async_trait::async_trait;
-use serde_json::Value;
 use crate::{
     ent_framework::EntityType,
     error::{AppError, AppResult},
 };
+use async_trait::async_trait;
+use serde_json::Value;
+use std::collections::HashMap;
 
 /// Hook context containing mutation information
 #[derive(Debug, Clone)]
@@ -41,13 +41,13 @@ pub enum HookTiming {
 pub trait EntHook: Send + Sync {
     /// Execute the hook logic
     async fn execute(&self, ctx: &mut HookContext) -> AppResult<()>;
-    
+
     /// Get hook name for debugging
     fn name(&self) -> &str;
-    
+
     /// Get supported operations
     fn operations(&self) -> Vec<HookOperation>;
-    
+
     /// Get hook timing
     fn timing(&self) -> HookTiming;
 }
@@ -62,12 +62,12 @@ impl HookRegistry {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Register a hook for an entity type
     pub fn register_hook(&mut self, entity_type: EntityType, hook: Box<dyn EntHook>) {
         self.hooks.entry(entity_type).or_default().push(hook);
     }
-    
+
     /// Execute all applicable hooks for an operation
     pub async fn execute_hooks(
         &self,
@@ -98,31 +98,31 @@ pub struct TimestampHook;
 impl EntHook for TimestampHook {
     async fn execute(&self, ctx: &mut HookContext) -> AppResult<()> {
         let now = chrono::Utc::now().timestamp();
-        
+
         if let Some(data) = &mut ctx.data {
             match ctx.operation {
                 HookOperation::Create => {
                     data["created_time"] = Value::Number(now.into());
                     data["updated_time"] = Value::Number(now.into());
-                },
+                }
                 HookOperation::Update => {
                     data["updated_time"] = Value::Number(now.into());
-                },
+                }
                 _ => {}
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "timestamp_hook"
     }
-    
+
     fn operations(&self) -> Vec<HookOperation> {
         vec![HookOperation::Create, HookOperation::Update]
     }
-    
+
     fn timing(&self) -> HookTiming {
         HookTiming::Before
     }
@@ -139,24 +139,24 @@ impl EntHook for ValidationHook {
             match ctx.entity_type {
                 EntityType::EntUser => {
                     self.validate_user(data)?;
-                },
+                }
                 EntityType::EntPost => {
                     self.validate_post(data)?;
-                },
+                }
                 _ => {}
             }
         }
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "validation_hook"
     }
-    
+
     fn operations(&self) -> Vec<HookOperation> {
         vec![HookOperation::Create, HookOperation::Update]
     }
-    
+
     fn timing(&self) -> HookTiming {
         HookTiming::Before
     }
@@ -166,32 +166,38 @@ impl ValidationHook {
     fn validate_user(&self, data: &Value) -> AppResult<()> {
         if let Some(username) = data.get("username").and_then(|v| v.as_str()) {
             if username.len() < 3 {
-                return Err(AppError::Validation("Username must be at least 3 characters".to_string()));
+                return Err(AppError::Validation(
+                    "Username must be at least 3 characters".to_string(),
+                ));
             }
             if username.len() > 30 {
-                return Err(AppError::Validation("Username must be at most 30 characters".to_string()));
+                return Err(AppError::Validation(
+                    "Username must be at most 30 characters".to_string(),
+                ));
             }
         }
-        
+
         if let Some(email) = data.get("email").and_then(|v| v.as_str()) {
             if !email.contains('@') {
                 return Err(AppError::Validation("Invalid email format".to_string()));
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn validate_post(&self, data: &Value) -> AppResult<()> {
         if let Some(content) = data.get("content").and_then(|v| v.as_str()) {
             if content.is_empty() {
-                return Err(AppError::Validation("Post content cannot be empty".to_string()));
+                return Err(AppError::Validation(
+                    "Post content cannot be empty".to_string(),
+                ));
             }
             if content.len() > 10000 {
                 return Err(AppError::Validation("Post content too long".to_string()));
             }
         }
-        
+
         Ok(())
     }
 }
@@ -209,15 +215,19 @@ impl EntHook for AuditLogHook {
         );
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "audit_log_hook"
     }
-    
+
     fn operations(&self) -> Vec<HookOperation> {
-        vec![HookOperation::Create, HookOperation::Update, HookOperation::Delete]
+        vec![
+            HookOperation::Create,
+            HookOperation::Update,
+            HookOperation::Delete,
+        ]
     }
-    
+
     fn timing(&self) -> HookTiming {
         HookTiming::After
     }
@@ -238,15 +248,15 @@ impl EntHook for CacheInvalidationHook {
         }
         Ok(())
     }
-    
+
     fn name(&self) -> &str {
         "cache_invalidation_hook"
     }
-    
+
     fn operations(&self) -> Vec<HookOperation> {
         vec![HookOperation::Update, HookOperation::Delete]
     }
-    
+
     fn timing(&self) -> HookTiming {
         HookTiming::After
     }
@@ -255,7 +265,7 @@ impl EntHook for CacheInvalidationHook {
 /// Create default hook registry with common hooks
 pub fn create_default_hook_registry() -> HookRegistry {
     let mut registry = HookRegistry::new();
-    
+
     // Register common hooks for all entity types
     let entity_types = [
         EntityType::EntUser,
@@ -265,13 +275,13 @@ pub fn create_default_hook_registry() -> HookRegistry {
         EntityType::EntPage,
         EntityType::EntEvent,
     ];
-    
+
     for entity_type in entity_types {
         registry.register_hook(entity_type.clone(), Box::new(TimestampHook));
         registry.register_hook(entity_type.clone(), Box::new(ValidationHook));
         registry.register_hook(entity_type.clone(), Box::new(AuditLogHook));
         registry.register_hook(entity_type.clone(), Box::new(CacheInvalidationHook));
     }
-    
+
     registry
 }

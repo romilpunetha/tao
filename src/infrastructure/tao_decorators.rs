@@ -14,8 +14,7 @@ use crate::infrastructure::{
     database::DatabaseTransaction,
     monitoring::MetricsCollector,
     tao_core::{
-        AssocType, TaoAssocQuery, TaoAssociation, TaoId, TaoObject, TaoOperations,
-        TaoType,
+        AssocType, TaoAssocQuery, TaoAssociation, TaoId, TaoObject, TaoOperations, TaoType,
     },
     write_ahead_log::{TaoOperation, TaoWriteAheadLog},
 };

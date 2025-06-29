@@ -8,4 +8,3 @@ impl ViewerContext {
         ViewerContext { user_id }
     }
 }
-

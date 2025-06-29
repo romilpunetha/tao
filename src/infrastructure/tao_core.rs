@@ -4,15 +4,16 @@
 
 use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
-use serde::{Deserialize, Serialize};
 
 use crate::infrastructure::{
     association_registry::AssociationRegistry,
     database::{
-        AssocQuery, Association, DatabaseInterface, DatabaseTransaction, Object, ObjectQuery, PostgresDatabase, ObjectId, ObjectType, AssociationType, Timestamp
+        AssocQuery, Association, AssociationType, DatabaseInterface, DatabaseTransaction, Object,
+        ObjectId, ObjectQuery, ObjectType, PostgresDatabase, Timestamp,
     },
     query_router::{QueryRouterConfig, TaoQueryRouter},
     shard_topology::{ShardHealth, ShardId, ShardInfo},
@@ -305,10 +306,17 @@ impl TaoCore {
             let pool = PgPoolOptions::new()
                 .max_connections(shard_config.max_connections)
                 .min_connections(shard_config.min_connections)
-                .acquire_timeout(std::time::Duration::from_secs(shard_config.acquire_timeout_secs))
+                .acquire_timeout(std::time::Duration::from_secs(
+                    shard_config.acquire_timeout_secs,
+                ))
                 .connect(&shard_config.connection_string)
                 .await
-                .map_err(|e| AppError::DatabaseError(format!("Failed to connect to database for shard {}: {}", shard_config.shard_id, e)))?;
+                .map_err(|e| {
+                    AppError::DatabaseError(format!(
+                        "Failed to connect to database for shard {}: {}",
+                        shard_config.shard_id, e
+                    ))
+                })?;
 
             let database = PostgresDatabase::new(pool);
             database.initialize().await?;
@@ -687,7 +695,6 @@ pub fn create_tao_association(
         data,
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -1,15 +1,24 @@
+use crate::error::AppResult;
+use crate::infrastructure::tao_core::{TaoAssociation, TaoId, TaoObject};
 use async_trait::async_trait;
 use std::time::Duration;
-use crate::error::AppResult;
-use crate::infrastructure::tao_core::{TaoId, TaoObject, TaoAssociation};
 
 #[async_trait]
 pub trait CacheInterface: Send + Sync {
     async fn get_object(&self, object_id: TaoId) -> AppResult<Option<TaoObject>>;
     async fn put_object(&self, object_id: TaoId, object: &TaoObject) -> AppResult<()>;
     async fn invalidate_object(&self, object_id: TaoId) -> AppResult<()>;
-    async fn put_associations(&self, id1: TaoId, atype: &str, associations: &[TaoAssociation]) -> AppResult<()>;
-    async fn get_associations(&self, id1: TaoId, atype: &str) -> AppResult<Option<Vec<TaoAssociation>>>;
+    async fn put_associations(
+        &self,
+        id1: TaoId,
+        atype: &str,
+        associations: &[TaoAssociation],
+    ) -> AppResult<()>;
+    async fn get_associations(
+        &self,
+        id1: TaoId,
+        atype: &str,
+    ) -> AppResult<Option<Vec<TaoAssociation>>>;
     // Add other cache methods as needed
 }
 

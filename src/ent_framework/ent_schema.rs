@@ -1,8 +1,8 @@
 // Ent Schema Framework - Meta's Schema-as-Code implementation in Rust
 // Provides declarative schema definition with automatic code generation
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // Temporary EntityType definition - will be generated later
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum EntityType {
@@ -18,7 +18,7 @@ impl EntityType {
     pub fn as_str(&self) -> &'static str {
         match self {
             EntityType::EntUser => "ent_user",
-            EntityType::EntPost => "ent_post", 
+            EntityType::EntPost => "ent_post",
             EntityType::EntComment => "ent_comment",
             EntityType::EntGroup => "ent_group",
             EntityType::EntPage => "ent_page",
@@ -36,25 +36,51 @@ impl std::fmt::Display for EntityType {
 /// Schema definition trait - equivalent to Meta's ent.Schema
 pub trait EntSchema: Send + Sync {
     /// Entity type this schema defines
-    fn entity_type() -> EntityType where Self: Sized;
-    
+    fn entity_type() -> EntityType
+    where
+        Self: Sized;
+
     /// Define fields for this entity
-    fn fields() -> Vec<FieldDefinition> where Self: Sized;
-    
+    fn fields() -> Vec<FieldDefinition>
+    where
+        Self: Sized;
+
     /// Define edges (relationships) for this entity  
-    fn edges() -> Vec<EdgeDefinition> where Self: Sized;
-    
+    fn edges() -> Vec<EdgeDefinition>
+    where
+        Self: Sized;
+
     /// Define indexes for this entity
-    fn indexes() -> Vec<IndexDefinition> where Self: Sized { Vec::new() }
-    
+    fn indexes() -> Vec<IndexDefinition>
+    where
+        Self: Sized,
+    {
+        Vec::new()
+    }
+
     /// Define hooks for this entity
-    fn hooks() -> Vec<HookDefinition> where Self: Sized { Vec::new() }
-    
+    fn hooks() -> Vec<HookDefinition>
+    where
+        Self: Sized,
+    {
+        Vec::new()
+    }
+
     /// Define privacy policies for this entity
-    fn policies() -> Vec<PolicyDefinition> where Self: Sized { Vec::new() }
-    
+    fn policies() -> Vec<PolicyDefinition>
+    where
+        Self: Sized,
+    {
+        Vec::new()
+    }
+
     /// Define annotations for this entity
-    fn annotations() -> Vec<AnnotationDefinition> where Self: Sized { Vec::new() }
+    fn annotations() -> Vec<AnnotationDefinition>
+    where
+        Self: Sized,
+    {
+        Vec::new()
+    }
 }
 
 /// Field definition - equivalent to Meta's field package
@@ -85,31 +111,31 @@ impl FieldDefinition {
             annotations: Vec::new(),
         }
     }
-    
+
     /// Mark field as optional
     pub fn optional(mut self) -> Self {
         self.optional = true;
         self
     }
-    
+
     /// Mark field as unique
     pub fn unique(mut self) -> Self {
         self.unique = true;
         self
     }
-    
+
     /// Mark field as immutable (can't be updated after creation)
     pub fn immutable(mut self) -> Self {
         self.immutable = true;
         self
     }
-    
+
     /// Add default value
     pub fn default_value(mut self, default: FieldDefault) -> Self {
         self.default = Some(default);
         self
     }
-    
+
     /// Add field validator
     pub fn validate(mut self, validator: FieldValidator) -> Self {
         self.validators.push(validator);
@@ -188,7 +214,7 @@ impl EdgeDefinition {
             constraints: Vec::new(),
         }
     }
-    
+
     /// Create an edge from another entity (back-reference)
     pub fn from(name: &str, target: EntityType, inverse_edge: &str) -> Self {
         Self {
@@ -206,7 +232,7 @@ impl EdgeDefinition {
             constraints: Vec::new(),
         }
     }
-    
+
     /// Mark edge as unique (O2O or limiting cardinality)
     pub fn unique(mut self) -> Self {
         self.unique = true;
@@ -215,19 +241,19 @@ impl EdgeDefinition {
         }
         self
     }
-    
+
     /// Mark edge as required
     pub fn required(mut self) -> Self {
         self.required = true;
         self
     }
-    
+
     /// Mark edge as bidirectional (automatic inverse)
     pub fn bidirectional(mut self) -> Self {
         self.bidirectional = true;
         self
     }
-    
+
     /// Set inverse edge name for bidirectional edges
     pub fn inverse(mut self, name: &str) -> Self {
         self.inverse_name = Some(name.to_string());
@@ -278,7 +304,7 @@ impl IndexDefinition {
             storage_key: None,
         }
     }
-    
+
     pub fn unique(mut self) -> Self {
         self.unique = true;
         self
@@ -313,7 +339,7 @@ pub struct PolicyDefinition {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PolicyType {
-    Query,  // Controls read access
+    Query,    // Controls read access
     Mutation, // Controls write access
 }
 
@@ -335,43 +361,46 @@ impl SchemaRegistry {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Register a schema
     pub fn register<T: EntSchema + 'static>(&mut self) {
         let entity_type = T::entity_type();
         let fields = T::fields();
         let edges = T::edges();
-        
+
         self.field_definitions.insert(entity_type.clone(), fields);
         self.edge_definitions.insert(entity_type, edges);
     }
-    
+
     /// Get field definitions for an entity
     pub fn get_fields(&self, entity_type: &EntityType) -> Option<&Vec<FieldDefinition>> {
         self.field_definitions.get(entity_type)
     }
-    
+
     /// Get edge definitions for an entity
     pub fn get_edges(&self, entity_type: &EntityType) -> Option<&Vec<EdgeDefinition>> {
         self.edge_definitions.get(entity_type)
     }
-    
+
     /// Get all registered entity types
     pub fn get_entity_types(&self) -> Vec<&EntityType> {
         self.field_definitions.keys().collect()
     }
-    
+
     /// Get complete schema (fields and edges) for an entity
-    pub fn get_schema(&self, entity_type: &EntityType) -> Option<(Vec<FieldDefinition>, Vec<EdgeDefinition>)> {
+    pub fn get_schema(
+        &self,
+        entity_type: &EntityType,
+    ) -> Option<(Vec<FieldDefinition>, Vec<EdgeDefinition>)> {
         let fields = self.field_definitions.get(entity_type)?.clone();
         let edges = self.edge_definitions.get(entity_type)?.clone();
         Some((fields, edges))
     }
-    
+
     /// Validate schema consistency
     pub fn validate(&self) -> Result<(), Vec<String>> {
         let mut errors = Vec::new();
-        
+
         // Validate edge references
         for (entity_type, edges) in &self.edge_definitions {
             for edge in edges {
@@ -382,14 +411,13 @@ impl SchemaRegistry {
                         entity_type, edge.name, edge.target_entity
                     ));
                 }
-                
+
                 // Validate bidirectional edge consistency
                 if edge.bidirectional {
                     if let Some(target_edges) = self.edge_definitions.get(&edge.target_entity) {
                         let default_inverse = format!("{}s", entity_type.as_str());
-                        let inverse_name = edge.inverse_name.as_ref()
-                            .unwrap_or(&default_inverse); // Default inverse name
-                        
+                        let inverse_name = edge.inverse_name.as_ref().unwrap_or(&default_inverse); // Default inverse name
+
                         if !target_edges.iter().any(|e| e.name == *inverse_name) {
                             errors.push(format!(
                                 "Bidirectional edge '{}' on {:?} has no corresponding inverse '{}' on {:?}",
@@ -400,7 +428,7 @@ impl SchemaRegistry {
                 }
             }
         }
-        
+
         if errors.is_empty() {
             Ok(())
         } else {

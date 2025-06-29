@@ -2,8 +2,8 @@
 // Based on Meta's TAO ID scheme: 64-bit IDs with shard routing
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::sync::{OnceLock, Arc};
 
 /// TAO ID Generator following Meta's pattern
 /// 64-bit ID format: [timestamp:42][shard_id:10][sequence:12]
@@ -56,7 +56,7 @@ impl TaoIdGenerator {
         // Construct 64-bit ID: [timestamp:42][shard_id:10][sequence:12]
         let id = ((now & 0x3FFFFFFFFFF) << 22) |    // 42 bits timestamp
                  ((self.shard_id as u64) << 12) |   // 10 bits shard_id
-                 (sequence & 0xFFF);                 // 12 bits sequence
+                 (sequence & 0xFFF); // 12 bits sequence
 
         id as i64
     }
@@ -88,7 +88,9 @@ pub type IdGenerator = TaoIdGenerator;
 static ID_GENERATOR: OnceLock<Arc<TaoIdGenerator>> = OnceLock::new();
 
 pub fn get_id_generator() -> Arc<TaoIdGenerator> {
-    ID_GENERATOR.get_or_init(|| Arc::new(TaoIdGenerator::new(42))).clone()
+    ID_GENERATOR
+        .get_or_init(|| Arc::new(TaoIdGenerator::new(42)))
+        .clone()
 }
 
 #[cfg(test)]

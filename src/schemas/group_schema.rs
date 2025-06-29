@@ -1,17 +1,16 @@
 // Group entity schema
 
-use crate::ent_framework::{
-    EntSchema, FieldDefinition, EdgeDefinition, 
-    FieldType, FieldDefault
-};
 use crate::ent_framework::EntityType;
+use crate::ent_framework::{EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType};
 
 /// Group entity schema
 pub struct GroupSchema;
 
 impl EntSchema for GroupSchema {
-    fn entity_type() -> EntityType { EntityType::EntGroup }
-    
+    fn entity_type() -> EntityType {
+        EntityType::EntGroup
+    }
+
     fn fields() -> Vec<FieldDefinition> {
         vec![
             FieldDefinition::new("name", FieldType::String),
@@ -20,7 +19,7 @@ impl EntSchema for GroupSchema {
                 .default_value(FieldDefault::Function("now".to_string())),
         ]
     }
-    
+
     fn edges() -> Vec<EdgeDefinition> {
         vec![
             EdgeDefinition::from("members", EntityType::EntUser, "groups"),

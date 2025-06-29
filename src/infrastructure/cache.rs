@@ -28,4 +28,3 @@ impl<K: std::hash::Hash + Eq, V> Cache<K, V> {
         self.inner.clear();
     }
 }
-

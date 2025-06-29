@@ -1,17 +1,16 @@
 // Comment entity schema
 
-use crate::ent_framework::{
-    EntSchema, FieldDefinition, EdgeDefinition, 
-    FieldType, FieldDefault
-};
 use crate::ent_framework::EntityType;
+use crate::ent_framework::{EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType};
 
 /// Comment entity schema
 pub struct CommentSchema;
 
 impl EntSchema for CommentSchema {
-    fn entity_type() -> EntityType { EntityType::EntComment }
-    
+    fn entity_type() -> EntityType {
+        EntityType::EntComment
+    }
+
     fn fields() -> Vec<FieldDefinition> {
         vec![
             FieldDefinition::new("author_id", FieldType::Int64),
@@ -21,7 +20,7 @@ impl EntSchema for CommentSchema {
                 .default_value(FieldDefault::Function("now".to_string())),
         ]
     }
-    
+
     fn edges() -> Vec<EdgeDefinition> {
         vec![
             EdgeDefinition::from("author", EntityType::EntUser, "comments"),

@@ -1,13 +1,10 @@
 // Ent Privacy System - Access control and data protection
 // Equivalent to Meta's Ent privacy policies for query and mutation control
 
-use std::collections::HashMap;
+use crate::{ent_framework::EntityType, error::AppResult};
 use async_trait::async_trait;
 use serde_json::Value;
-use crate::{
-    ent_framework::EntityType,
-    error::AppResult,
-};
+use std::collections::HashMap;
 
 /// Privacy rule context for access control decisions
 #[derive(Debug, Clone)]
@@ -36,8 +33,8 @@ pub enum PrivacyOperation {
 pub enum PrivacyResult {
     Allow,
     Deny,
-    Skip,    // Skip this rule, continue to next
-    Filter,  // Allow but apply data filtering
+    Skip,   // Skip this rule, continue to next
+    Filter, // Allow but apply data filtering
 }
 
 /// Trait for implementing privacy rules
@@ -45,13 +42,13 @@ pub enum PrivacyResult {
 pub trait PrivacyRule: Send + Sync {
     /// Evaluate the privacy rule
     async fn evaluate(&self, ctx: &PrivacyContext) -> AppResult<PrivacyResult>;
-    
+
     /// Get rule name for debugging
     fn name(&self) -> &str;
-    
+
     /// Get supported operations
     fn operations(&self) -> Vec<PrivacyOperation>;
-    
+
     /// Get rule priority (higher = evaluated first)
     fn priority(&self) -> i32;
 }
@@ -66,7 +63,7 @@ impl PrivacyRegistry {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Register a privacy rule for an entity type
     pub fn register_rule(&mut self, entity_type: EntityType, rule: Box<dyn PrivacyRule>) {
         let rules = self.rules.entry(entity_type).or_default();
@@ -74,7 +71,7 @@ impl PrivacyRegistry {
         // Sort by priority (highest first)
         rules.sort_by(|a, b| b.priority().cmp(&a.priority()));
     }
-    
+
     /// Evaluate privacy rules for an operation
     pub async fn evaluate_access(
         &self,
@@ -94,7 +91,7 @@ impl PrivacyRegistry {
                 }
             }
         }
-        
+
         // Default to deny if no rules explicitly allow
         Ok(PrivacyResult::Deny)
     }
@@ -113,15 +110,15 @@ impl PrivacyRule for PublicReadRule {
             _ => Ok(PrivacyResult::Skip),
         }
     }
-    
+
     fn name(&self) -> &str {
         "public_read"
     }
-    
+
     fn operations(&self) -> Vec<PrivacyOperation> {
         vec![PrivacyOperation::Read, PrivacyOperation::Query]
     }
-    
+
     fn priority(&self) -> i32 {
         100
     }
@@ -144,19 +141,19 @@ impl PrivacyRule for OwnerOnlyRule {
                     }
                 }
                 Ok(PrivacyResult::Deny)
-            },
+            }
             _ => Ok(PrivacyResult::Skip),
         }
     }
-    
+
     fn name(&self) -> &str {
         "owner_only"
     }
-    
+
     fn operations(&self) -> Vec<PrivacyOperation> {
         vec![PrivacyOperation::Update, PrivacyOperation::Delete]
     }
-    
+
     fn priority(&self) -> i32 {
         200
     }
@@ -174,11 +171,11 @@ impl PrivacyRule for AdminAccessRule {
             Ok(PrivacyResult::Skip)
         }
     }
-    
+
     fn name(&self) -> &str {
         "admin_access"
     }
-    
+
     fn operations(&self) -> Vec<PrivacyOperation> {
         vec![
             PrivacyOperation::Create,
@@ -188,7 +185,7 @@ impl PrivacyRule for AdminAccessRule {
             PrivacyOperation::Query,
         ]
     }
-    
+
     fn priority(&self) -> i32 {
         1000 // Highest priority
     }
@@ -210,16 +207,18 @@ impl PrivacyRule for FriendsOnlyRule {
                             // TODO: Check if users are friends
                             // For now, simplified check
                             return Ok(PrivacyResult::Filter);
-                        },
+                        }
                         "private" => {
                             // Only owner can see
-                            if let Some(owner_id) = data.get("author_id").or_else(|| data.get("user_id")) {
+                            if let Some(owner_id) =
+                                data.get("author_id").or_else(|| data.get("user_id"))
+                            {
                                 if owner_id.as_i64() == Some(user_id) {
                                     return Ok(PrivacyResult::Allow);
                                 }
                             }
                             return Ok(PrivacyResult::Deny);
-                        },
+                        }
                         _ => return Ok(PrivacyResult::Deny),
                     }
                 }
@@ -227,15 +226,15 @@ impl PrivacyRule for FriendsOnlyRule {
         }
         Ok(PrivacyResult::Skip)
     }
-    
+
     fn name(&self) -> &str {
         "friends_only"
     }
-    
+
     fn operations(&self) -> Vec<PrivacyOperation> {
         vec![PrivacyOperation::Read, PrivacyOperation::Query]
     }
-    
+
     fn priority(&self) -> i32 {
         300
     }
@@ -249,7 +248,10 @@ pub struct RateLimitRule {
 
 impl RateLimitRule {
     pub fn new(max_requests: u32, time_window: u64) -> Self {
-        Self { max_requests, time_window }
+        Self {
+            max_requests,
+            time_window,
+        }
     }
 }
 
@@ -260,8 +262,10 @@ impl PrivacyRule for RateLimitRule {
             if let Some(user_id) = ctx.user_id {
                 // TODO: Check actual rate limiting store (Redis, etc.)
                 // For now, simplified check
-                println!("Rate limit check for user {} (max: {}/{}s)", 
-                    user_id, self.max_requests, self.time_window);
+                println!(
+                    "Rate limit check for user {} (max: {}/{}s)",
+                    user_id, self.max_requests, self.time_window
+                );
                 Ok(PrivacyResult::Allow)
             } else {
                 Ok(PrivacyResult::Deny)
@@ -270,15 +274,15 @@ impl PrivacyRule for RateLimitRule {
             Ok(PrivacyResult::Skip)
         }
     }
-    
+
     fn name(&self) -> &str {
         "rate_limit"
     }
-    
+
     fn operations(&self) -> Vec<PrivacyOperation> {
         vec![PrivacyOperation::Create]
     }
-    
+
     fn priority(&self) -> i32 {
         500
     }
@@ -297,15 +301,15 @@ impl PrivacyRule for DataSanitizationRule {
             Ok(PrivacyResult::Skip)
         }
     }
-    
+
     fn name(&self) -> &str {
         "data_sanitization"
     }
-    
+
     fn operations(&self) -> Vec<PrivacyOperation> {
         vec![PrivacyOperation::Read, PrivacyOperation::Query]
     }
-    
+
     fn priority(&self) -> i32 {
         50 // Low priority - last filter
     }
@@ -314,7 +318,7 @@ impl PrivacyRule for DataSanitizationRule {
 /// Create default privacy registry with common rules
 pub fn create_default_privacy_registry() -> PrivacyRegistry {
     let mut registry = PrivacyRegistry::new();
-    
+
     // Register rules for all entity types
     let entity_types = [
         EntityType::EntUser,
@@ -324,26 +328,26 @@ pub fn create_default_privacy_registry() -> PrivacyRegistry {
         EntityType::EntPage,
         EntityType::EntEvent,
     ];
-    
+
     for entity_type in entity_types {
         // Admin access (highest priority)
         registry.register_rule(entity_type.clone(), Box::new(AdminAccessRule));
-        
+
         // Owner access for modifications
         registry.register_rule(entity_type.clone(), Box::new(OwnerOnlyRule));
-        
+
         // Friends-only access for private content
         registry.register_rule(entity_type.clone(), Box::new(FriendsOnlyRule));
-        
+
         // Rate limiting for creates
         registry.register_rule(entity_type.clone(), Box::new(RateLimitRule::new(100, 3600)));
-        
+
         // Public read access (if no other rules apply)
         registry.register_rule(entity_type.clone(), Box::new(PublicReadRule));
-        
+
         // Data sanitization (lowest priority)
         registry.register_rule(entity_type.clone(), Box::new(DataSanitizationRule));
     }
-    
+
     registry
 }

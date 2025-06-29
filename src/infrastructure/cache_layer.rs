@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{info, instrument};
 
-use crate::error::{AppResult, AppError};
+use crate::error::{AppError, AppResult};
+use crate::infrastructure::tao_core::{TaoAssociation, TaoId, TaoObject};
 use crate::infrastructure::traits::CacheInterface;
-use crate::infrastructure::tao_core::{TaoId, TaoObject, TaoAssociation};
 
 /// Cache entry with TTL and versioning
 #[derive(Debug, Clone)]
@@ -106,18 +106,30 @@ pub struct CacheMetrics {
 impl CacheMetrics {
     pub fn l1_hit_rate(&self) -> f64 {
         let total = self.l1_hits + self.l1_misses;
-        if total == 0 { 0.0 } else { self.l1_hits as f64 / total as f64 }
+        if total == 0 {
+            0.0
+        } else {
+            self.l1_hits as f64 / total as f64
+        }
     }
 
     pub fn l2_hit_rate(&self) -> f64 {
         let total = self.l2_hits + self.l2_misses;
-        if total == 0 { 0.0 } else { self.l2_hits as f64 / total as f64 }
+        if total == 0 {
+            0.0
+        } else {
+            self.l2_hits as f64 / total as f64
+        }
     }
 
     pub fn overall_hit_rate(&self) -> f64 {
         let total_hits = self.l1_hits + self.l2_hits;
         let total_requests = self.l1_hits + self.l1_misses + self.l2_hits + self.l2_misses;
-        if total_requests == 0 { 0.0 } else { total_hits as f64 / total_requests as f64 }
+        if total_requests == 0 {
+            0.0
+        } else {
+            total_hits as f64 / total_requests as f64
+        }
     }
 }
 
@@ -162,7 +174,8 @@ impl TaoMultiTierCache {
                 self.record_l2_hit().await;
 
                 // Warm L1 cache
-                self.put_l1(&cache_key, data.clone(), self.config.l1_default_ttl).await;
+                self.put_l1(&cache_key, data.clone(), self.config.l1_default_ttl)
+                    .await;
 
                 return Ok(Some(self.deserialize_object(&data)?));
             }
@@ -179,12 +192,15 @@ impl TaoMultiTierCache {
         let data = self.serialize_object(object)?;
 
         // Write to L1 cache
-        self.put_l1(&cache_key, data.clone(), self.config.l1_default_ttl).await;
+        self.put_l1(&cache_key, data.clone(), self.config.l1_default_ttl)
+            .await;
 
         // Write through to L2 cache if enabled
         if self.config.enable_write_through {
             if let Some(ref l2_cache) = self.l2_cache {
-                l2_cache.put(&cache_key, data, self.config.l2_default_ttl).await?;
+                l2_cache
+                    .put(&cache_key, data, self.config.l2_default_ttl)
+                    .await?;
                 self.record_write_through().await;
             }
         }
@@ -213,15 +229,23 @@ impl TaoMultiTierCache {
 
     /// Cache associations with pagination support
     #[instrument(skip(self, associations))]
-    pub async fn put_associations(&self, id1: TaoId, atype: &str, associations: &[TaoAssociation]) -> AppResult<()> {
+    pub async fn put_associations(
+        &self,
+        id1: TaoId,
+        atype: &str,
+        associations: &[TaoAssociation],
+    ) -> AppResult<()> {
         let cache_key = format!("assoc:{}:{}", id1, atype);
         let data = self.serialize_associations(associations)?;
 
-        self.put_l1(&cache_key, data.clone(), self.config.l1_default_ttl).await;
+        self.put_l1(&cache_key, data.clone(), self.config.l1_default_ttl)
+            .await;
 
         if self.config.enable_write_through {
             if let Some(ref l2_cache) = self.l2_cache {
-                l2_cache.put(&cache_key, data, self.config.l2_default_ttl).await?;
+                l2_cache
+                    .put(&cache_key, data, self.config.l2_default_ttl)
+                    .await?;
                 self.record_write_through().await;
             }
         }
@@ -231,7 +255,11 @@ impl TaoMultiTierCache {
 
     /// Get associations from cache
     #[instrument(skip(self))]
-    pub async fn get_associations(&self, id1: TaoId, atype: &str) -> AppResult<Option<Vec<TaoAssociation>>> {
+    pub async fn get_associations(
+        &self,
+        id1: TaoId,
+        atype: &str,
+    ) -> AppResult<Option<Vec<TaoAssociation>>> {
         let cache_key = format!("assoc:{}:{}", id1, atype);
 
         // Try L1 first
@@ -250,7 +278,8 @@ impl TaoMultiTierCache {
         if let Some(ref l2_cache) = self.l2_cache {
             if let Some(data) = l2_cache.get(&cache_key).await? {
                 self.record_l2_hit().await;
-                self.put_l1(&cache_key, data.clone(), self.config.l1_default_ttl).await;
+                self.put_l1(&cache_key, data.clone(), self.config.l1_default_ttl)
+                    .await;
                 return Ok(Some(self.deserialize_associations(&data)?));
             }
         }
@@ -454,7 +483,11 @@ impl CacheInvalidationCoordinator {
     }
 
     /// Coordinate invalidation across all caches
-    pub async fn invalidate_pattern(&self, pattern: &str, reason: InvalidationReason) -> AppResult<()> {
+    pub async fn invalidate_pattern(
+        &self,
+        pattern: &str,
+        reason: InvalidationReason,
+    ) -> AppResult<()> {
         let event = InvalidationEvent {
             key_pattern: pattern.to_string(),
             timestamp: Instant::now(),
@@ -476,7 +509,7 @@ impl CacheInvalidationCoordinator {
         Ok(())
     }
 }
-  
+
 #[async_trait::async_trait]
 impl CacheInterface for TaoMultiTierCache {
     async fn get_object(&self, object_id: TaoId) -> AppResult<Option<TaoObject>> {
@@ -491,11 +524,20 @@ impl CacheInterface for TaoMultiTierCache {
         self.invalidate_object(object_id).await
     }
 
-    async fn put_associations(&self, id1: TaoId, atype: &str, associations: &[TaoAssociation]) -> AppResult<()> {
+    async fn put_associations(
+        &self,
+        id1: TaoId,
+        atype: &str,
+        associations: &[TaoAssociation],
+    ) -> AppResult<()> {
         self.put_associations(id1, atype, associations).await
     }
 
-    async fn get_associations(&self, id1: TaoId, atype: &str) -> AppResult<Option<Vec<TaoAssociation>>> {
+    async fn get_associations(
+        &self,
+        id1: TaoId,
+        atype: &str,
+    ) -> AppResult<Option<Vec<TaoAssociation>>> {
         self.get_associations(id1, atype).await
     }
 }

@@ -1,17 +1,16 @@
 // Event entity schema
 
-use crate::ent_framework::{
-    EntSchema, FieldDefinition, EdgeDefinition, 
-    FieldType, FieldDefault
-};
 use crate::ent_framework::EntityType;
+use crate::ent_framework::{EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType};
 
 /// Event entity schema
 pub struct EventSchema;
 
 impl EntSchema for EventSchema {
-    fn entity_type() -> EntityType { EntityType::EntEvent }
-    
+    fn entity_type() -> EntityType {
+        EntityType::EntEvent
+    }
+
     fn fields() -> Vec<FieldDefinition> {
         vec![
             FieldDefinition::new("name", FieldType::String),
@@ -21,7 +20,7 @@ impl EntSchema for EventSchema {
                 .default_value(FieldDefault::Function("now".to_string())),
         ]
     }
-    
+
     fn edges() -> Vec<EdgeDefinition> {
         vec![
             EdgeDefinition::from("attendees", EntityType::EntUser, "attending_events"),

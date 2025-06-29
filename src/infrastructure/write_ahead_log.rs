@@ -43,7 +43,6 @@ pub enum TaoOperation {
 use crate::infrastructure::tao_core::TaoAssociation;
 
 impl TaoOperation {
-
     pub fn operation_type(&self) -> &'static str {
         match self {
             TaoOperation::InsertObject { .. } => "insert_object",
@@ -173,10 +172,7 @@ pub struct WalStats {
 }
 
 impl TaoWriteAheadLog {
-    pub async fn new(
-        config: WalConfig,
-        storage_dir: &str,
-    ) -> AppResult<Self> {
+    pub async fn new(config: WalConfig, storage_dir: &str) -> AppResult<Self> {
         let storage = WalStorage::new(storage_dir)?;
         let pending_transactions = storage.load_transactions()?;
 
@@ -461,9 +457,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let storage_dir = dir.path().to_str().unwrap();
         let config = WalConfig::default();
-        let wal = TaoWriteAheadLog::new(config, storage_dir)
-            .await
-            .unwrap();
+        let wal = TaoWriteAheadLog::new(config, storage_dir).await.unwrap();
 
         let stats = wal.get_stats().await;
         assert_eq!(stats.total_transactions, 0);
@@ -475,9 +469,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let storage_dir = dir.path().to_str().unwrap();
         let config = WalConfig::default();
-        let wal = TaoWriteAheadLog::new(config, storage_dir)
-            .await
-            .unwrap();
+        let wal = TaoWriteAheadLog::new(config, storage_dir).await.unwrap();
 
         let operations = vec![TaoOperation::InsertAssociation {
             assoc: TaoAssociation {
@@ -534,9 +526,7 @@ mod tests {
         } // wal is dropped here, its background tasks are stopped.
 
         // Create a new WAL instance from the same directory
-        let wal2 = TaoWriteAheadLog::new(config, storage_dir)
-            .await
-            .unwrap();
+        let wal2 = TaoWriteAheadLog::new(config, storage_dir).await.unwrap();
 
         // It should have loaded the pending transaction from storage
         assert_eq!(wal2.get_pending_transaction_count().await, 1);

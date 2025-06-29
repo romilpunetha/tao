@@ -1,9 +1,12 @@
 use async_trait::async_trait;
-use sqlx::{sqlite::SqlitePool, Row, Column, sqlite::Sqlite, ValueRef, QueryBuilder};
+use sqlx::{sqlite::Sqlite, sqlite::SqlitePool, Column, QueryBuilder, Row, ValueRef};
 use std::collections::HashMap;
 
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::database::{DatabaseInterface, DatabaseTransaction, AssocQueryResult, ObjectQueryResult, Object, Association, ObjectQuery, AssocQuery, ObjectId, ObjectType, AssociationType, Timestamp};
+use crate::infrastructure::database::{
+    AssocQuery, AssocQueryResult, Association, AssociationType, DatabaseInterface,
+    DatabaseTransaction, Object, ObjectId, ObjectQuery, ObjectQueryResult, ObjectType, Timestamp,
+};
 
 /// SQLite implementation of database interface for in-memory testing
 pub struct SqliteDatabase {
@@ -12,9 +15,9 @@ pub struct SqliteDatabase {
 
 impl SqliteDatabase {
     pub async fn new_in_memory() -> AppResult<Self> {
-        let pool = SqlitePool::connect("sqlite::memory:")
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to connect to in-memory SQLite: {}", e)))?;
+        let pool = SqlitePool::connect("sqlite::memory:").await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to connect to in-memory SQLite: {}", e))
+        })?;
 
         let db = Self { pool };
         db.initialize().await?;
@@ -23,9 +26,18 @@ impl SqliteDatabase {
 
     /// Initialize TAO database tables for SQLite
     pub async fn initialize(&self) -> AppResult<()> {
-        sqlx::query("DROP TABLE IF EXISTS tao_objects").execute(&self.pool).await.ok();
-        sqlx::query("DROP TABLE IF EXISTS tao_associations").execute(&self.pool).await.ok();
-        sqlx::query("DROP TABLE IF EXISTS tao_association_counts").execute(&self.pool).await.ok();
+        sqlx::query("DROP TABLE IF EXISTS tao_objects")
+            .execute(&self.pool)
+            .await
+            .ok();
+        sqlx::query("DROP TABLE IF EXISTS tao_associations")
+            .execute(&self.pool)
+            .await
+            .ok();
+        sqlx::query("DROP TABLE IF EXISTS tao_association_counts")
+            .execute(&self.pool)
+            .await
+            .ok();
 
         sqlx::query(
             r#"
@@ -57,7 +69,9 @@ impl SqliteDatabase {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create associations table: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create associations table: {}", e))
+        })?;
 
         sqlx::query(
             r#"
@@ -72,12 +86,16 @@ impl SqliteDatabase {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create association counts table: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create association counts table: {}", e))
+        })?;
 
         sqlx::query("CREATE INDEX idx_tao_objects_otype ON tao_objects(otype)")
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to create objects otype index: {}", e)))?;
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to create objects otype index: {}", e))
+            })?;
 
         sqlx::query("CREATE INDEX idx_tao_assoc_id1_atype ON tao_associations(id1, atype, time_created DESC)")
             .execute(&self.pool)
@@ -95,9 +113,10 @@ impl DatabaseInterface for SqliteDatabase {
     }
 
     async fn begin_transaction(&self) -> AppResult<DatabaseTransaction> {
-        let tx = self.pool.begin()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to begin transaction: {}", e)))?;
+        let tx =
+            self.pool.begin().await.map_err(|e| {
+                AppError::DatabaseError(format!("Failed to begin transaction: {}", e))
+            })?;
         Ok(DatabaseTransaction::new_sqlite(tx))
     }
 
@@ -141,7 +160,8 @@ impl DatabaseInterface for SqliteDatabase {
 
         qb.push(" ORDER BY id");
 
-        let rows = qb.build()
+        let rows = qb
+            .build()
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::DatabaseError(format!("Failed to get objects: {}", e)))?;
@@ -203,7 +223,9 @@ impl DatabaseInterface for SqliteDatabase {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to delete object {}: {}", id, e)))?;
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to delete object {}: {}", id, e))
+            })?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -212,18 +234,19 @@ impl DatabaseInterface for SqliteDatabase {
             .bind(id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to check if object {} exists: {}", id, e)))?;
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to check if object {} exists: {}", id, e))
+            })?;
         Ok(row.is_some())
     }
 
     async fn get_associations(&self, query: AssocQuery) -> AppResult<AssocQueryResult> {
         let mut qb = QueryBuilder::<Sqlite>::new(
-            "SELECT id1, atype, id2, time_created, data FROM tao_associations WHERE id1 = "
+            "SELECT id1, atype, id2, time_created, data FROM tao_associations WHERE id1 = ",
         );
         qb.push_bind(query.id1);
         qb.push(" AND atype = ");
         qb.push_bind(query.atype.clone());
-
 
         if let Some(id2_set) = query.id2_set {
             qb.push(" AND id2 IN (");
@@ -253,10 +276,10 @@ impl DatabaseInterface for SqliteDatabase {
             qb.push_bind(offset as i64);
         }
 
-        let rows = qb.build()
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to get associations: {}", e)))?;
+        let rows =
+            qb.build().fetch_all(&self.pool).await.map_err(|e| {
+                AppError::DatabaseError(format!("Failed to get associations: {}", e))
+            })?;
 
         let associations = rows
             .into_iter()
@@ -288,18 +311,27 @@ impl DatabaseInterface for SqliteDatabase {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create association: {}", e)))?;
 
-        self.update_association_count(assoc.id1, assoc.atype, 1).await?;
+        self.update_association_count(assoc.id1, assoc.atype, 1)
+            .await?;
         Ok(())
     }
 
-    async fn delete_association(&self, id1: ObjectId, atype: AssociationType, id2: ObjectId) -> AppResult<bool> {
-        let result = sqlx::query("DELETE FROM tao_associations WHERE id1 = ? AND atype = ? AND id2 = ?")
-            .bind(id1)
-            .bind(atype.clone())
-            .bind(id2)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to delete association: {}", e)))?;
+    async fn delete_association(
+        &self,
+        id1: ObjectId,
+        atype: AssociationType,
+        id2: ObjectId,
+    ) -> AppResult<bool> {
+        let result =
+            sqlx::query("DELETE FROM tao_associations WHERE id1 = ? AND atype = ? AND id2 = ?")
+                .bind(id1)
+                .bind(atype.clone())
+                .bind(id2)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to delete association: {}", e))
+                })?;
 
         if result.rows_affected() > 0 {
             self.update_association_count(id1, atype, -1).await?;
@@ -309,16 +341,22 @@ impl DatabaseInterface for SqliteDatabase {
         }
     }
 
-    async fn association_exists(&self, id1: ObjectId, atype: AssociationType, id2: ObjectId) -> AppResult<bool> {
-        let row = sqlx::query(
-            "SELECT 1 FROM tao_associations WHERE id1 = ? AND atype = ? AND id2 = ?",
-        )
-        .bind(id1)
-        .bind(atype)
-        .bind(id2)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to check association existence: {}", e)))?;
+    async fn association_exists(
+        &self,
+        id1: ObjectId,
+        atype: AssociationType,
+        id2: ObjectId,
+    ) -> AppResult<bool> {
+        let row =
+            sqlx::query("SELECT 1 FROM tao_associations WHERE id1 = ? AND atype = ? AND id2 = ?")
+                .bind(id1)
+                .bind(atype)
+                .bind(id2)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to check association existence: {}", e))
+                })?;
         Ok(row.is_some())
     }
 
@@ -326,7 +364,12 @@ impl DatabaseInterface for SqliteDatabase {
         self.get_association_count(id1, atype).await
     }
 
-    async fn update_association_count(&self, id: ObjectId, atype: AssociationType, delta: i64) -> AppResult<()> {
+    async fn update_association_count(
+        &self,
+        id: ObjectId,
+        atype: AssociationType,
+        delta: i64,
+    ) -> AppResult<()> {
         let now = crate::infrastructure::tao_core::current_time_millis();
         sqlx::query(
             "INSERT OR REPLACE INTO tao_association_counts (id, atype, count, updated_time) VALUES (?, ?, COALESCE((SELECT count FROM tao_association_counts WHERE id = ? AND atype = ?), 0) + ?, ?)",
@@ -344,16 +387,25 @@ impl DatabaseInterface for SqliteDatabase {
     }
 
     async fn get_association_count(&self, id: ObjectId, atype: AssociationType) -> AppResult<u64> {
-        let row = sqlx::query("SELECT count FROM tao_association_counts WHERE id = ? AND atype = ?")
-            .bind(id)
-            .bind(atype)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to get association count: {}", e)))?;
+        let row =
+            sqlx::query("SELECT count FROM tao_association_counts WHERE id = ? AND atype = ?")
+                .bind(id)
+                .bind(atype)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to get association count: {}", e))
+                })?;
         Ok(row.map_or(0, |r| r.get::<i64, _>("count") as u64)) // Cast to u64
     }
 
-    async fn create_object_tx(&self, tx: &mut DatabaseTransaction, id: ObjectId, otype: ObjectType, data: Vec<u8>) -> AppResult<()> {
+    async fn create_object_tx(
+        &self,
+        tx: &mut DatabaseTransaction,
+        id: ObjectId,
+        otype: ObjectType,
+        data: Vec<u8>,
+    ) -> AppResult<()> {
         let now = crate::infrastructure::tao_core::current_time_millis();
         let sqlite_tx = tx.as_sqlite_mut()?;
 
@@ -371,7 +423,11 @@ impl DatabaseInterface for SqliteDatabase {
         Ok(())
     }
 
-    async fn create_association_tx(&self, tx: &mut DatabaseTransaction, assoc: Association) -> AppResult<()> {
+    async fn create_association_tx(
+        &self,
+        tx: &mut DatabaseTransaction,
+        assoc: Association,
+    ) -> AppResult<()> {
         let sqlite_tx = tx.as_sqlite_mut()?;
 
         sqlx::query(
@@ -386,20 +442,33 @@ impl DatabaseInterface for SqliteDatabase {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create association in transaction: {}", e)))?;
 
-        self.update_association_count_tx(tx, assoc.id1, assoc.atype, 1).await?;
+        self.update_association_count_tx(tx, assoc.id1, assoc.atype, 1)
+            .await?;
         Ok(())
     }
 
-    async fn delete_association_tx(&self, tx: &mut DatabaseTransaction, id1: ObjectId, atype: AssociationType, id2: ObjectId) -> AppResult<bool> {
+    async fn delete_association_tx(
+        &self,
+        tx: &mut DatabaseTransaction,
+        id1: ObjectId,
+        atype: AssociationType,
+        id2: ObjectId,
+    ) -> AppResult<bool> {
         let sqlite_tx = tx.as_sqlite_mut()?;
 
-        let result = sqlx::query("DELETE FROM tao_associations WHERE id1 = ? AND atype = ? AND id2 = ?")
-            .bind(id1)
-            .bind(atype.clone())
-            .bind(id2)
-            .execute(&mut **sqlite_tx)
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to delete association in transaction: {}", e)))?;
+        let result =
+            sqlx::query("DELETE FROM tao_associations WHERE id1 = ? AND atype = ? AND id2 = ?")
+                .bind(id1)
+                .bind(atype.clone())
+                .bind(id2)
+                .execute(&mut **sqlite_tx)
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!(
+                        "Failed to delete association in transaction: {}",
+                        e
+                    ))
+                })?;
 
         if result.rows_affected() > 0 {
             self.update_association_count_tx(tx, id1, atype, -1).await?;
@@ -409,7 +478,13 @@ impl DatabaseInterface for SqliteDatabase {
         }
     }
 
-    async fn update_association_count_tx(&self, tx: &mut DatabaseTransaction, id: ObjectId, atype: AssociationType, delta: i64) -> AppResult<()> {
+    async fn update_association_count_tx(
+        &self,
+        tx: &mut DatabaseTransaction,
+        id: ObjectId,
+        atype: AssociationType,
+        delta: i64,
+    ) -> AppResult<()> {
         let now = crate::infrastructure::tao_core::current_time_millis();
         let sqlite_tx = tx.as_sqlite_mut()?;
 
@@ -439,8 +514,12 @@ impl DatabaseInterface for SqliteDatabase {
             let mut row_map = HashMap::new();
             for column in row.columns() {
                 let col_name = column.name().to_string();
-                let value_ref = row.try_get_raw(column.ordinal())
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to get raw value for column {}: {}", col_name, e)))?;
+                let value_ref = row.try_get_raw(column.ordinal()).map_err(|e| {
+                    AppError::DatabaseError(format!(
+                        "Failed to get raw value for column {}: {}",
+                        col_name, e
+                    ))
+                })?;
 
                 let value_str = if value_ref.is_null() {
                     "NULL".to_string()

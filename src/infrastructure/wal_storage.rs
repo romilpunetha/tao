@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use crate::error::{AppError, AppResult};
 use super::write_ahead_log::{PendingTransaction, TransactionStatus, TxnId};
+use crate::error::{AppError, AppResult};
 
 /// File-based storage for the Write-Ahead Log
 /// Provides durable persistence for transaction logs
@@ -104,9 +104,8 @@ impl WalStorage {
 
         let reader = BufReader::new(index_file);
         for line in reader.lines() {
-            let line = line.map_err(|e| {
-                AppError::StorageError(format!("Failed to read index line: {}", e))
-            })?;
+            let line = line
+                .map_err(|e| AppError::StorageError(format!("Failed to read index line: {}", e)))?;
 
             if line.trim().is_empty() {
                 continue;
@@ -141,9 +140,8 @@ impl WalStorage {
 
         let reader = BufReader::new(log_file);
         for line in reader.lines() {
-            let line = line.map_err(|e| {
-                AppError::StorageError(format!("Failed to read log line: {}", e))
-            })?;
+            let line = line
+                .map_err(|e| AppError::StorageError(format!("Failed to read log line: {}", e)))?;
 
             if line.trim().is_empty() {
                 continue;
@@ -162,10 +160,11 @@ impl WalStorage {
                         if let WalEntryType::Transaction = entry.entry_type {
                             let mut txn: PendingTransaction = serde_json::from_slice(&entry.data)
                                 .map_err(|e| {
-                                    AppError::DeserializationError(format!(
-                                        "Failed to deserialize transaction: {}", e
-                                    ))
-                                })?;
+                                AppError::DeserializationError(format!(
+                                    "Failed to deserialize transaction: {}",
+                                    e
+                                ))
+                            })?;
 
                             // Update with latest status
                             txn.status = *status;
@@ -176,7 +175,10 @@ impl WalStorage {
             }
         }
 
-        info!("Loaded {} pending transactions from WAL storage", transactions.len());
+        info!(
+            "Loaded {} pending transactions from WAL storage",
+            transactions.len()
+        );
         Ok(transactions)
     }
 
@@ -212,9 +214,9 @@ impl WalStorage {
                 AppError::StorageError(format!("Failed to write to log file: {}", e))
             })?;
 
-            log_file.flush().map_err(|e| {
-                AppError::StorageError(format!("Failed to flush log file: {}", e))
-            })?;
+            log_file
+                .flush()
+                .map_err(|e| AppError::StorageError(format!("Failed to flush log file: {}", e)))?;
 
             offset
         };
@@ -277,9 +279,9 @@ impl WalStorage {
                 AppError::StorageError(format!("Failed to write status update to log file: {}", e))
             })?;
 
-            log_file.flush().map_err(|e| {
-                AppError::StorageError(format!("Failed to flush log file: {}", e))
-            })?;
+            log_file
+                .flush()
+                .map_err(|e| AppError::StorageError(format!("Failed to flush log file: {}", e)))?;
 
             offset
         };
@@ -338,7 +340,9 @@ impl WalStorage {
 
         let log_size = if log_path.exists() {
             std::fs::metadata(&log_path)
-                .map_err(|e| AppError::StorageError(format!("Failed to get log file metadata: {}", e)))?
+                .map_err(|e| {
+                    AppError::StorageError(format!("Failed to get log file metadata: {}", e))
+                })?
                 .len()
         } else {
             0
@@ -346,7 +350,9 @@ impl WalStorage {
 
         let index_size = if index_path.exists() {
             std::fs::metadata(&index_path)
-                .map_err(|e| AppError::StorageError(format!("Failed to get index file metadata: {}", e)))?
+                .map_err(|e| {
+                    AppError::StorageError(format!("Failed to get index file metadata: {}", e))
+                })?
                 .len()
         } else {
             0
@@ -373,9 +379,9 @@ pub struct WalStorageStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-    use crate::infrastructure::write_ahead_log::TaoOperation;
     use crate::infrastructure::tao_core::TaoAssociation;
+    use crate::infrastructure::write_ahead_log::TaoOperation;
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_storage_creation() {
@@ -414,8 +420,10 @@ mod tests {
         storage.append_transaction(&txn).await.unwrap();
 
         // Update its status
-        storage.update_transaction_status(txn_id, TransactionStatus::Committed)
-            .await.unwrap();
+        storage
+            .update_transaction_status(txn_id, TransactionStatus::Committed)
+            .await
+            .unwrap();
 
         // Verify files were created and have content
         let stats = storage.get_storage_stats().unwrap();
@@ -469,8 +477,10 @@ mod tests {
         let txn_id = txn.txn_id;
 
         storage.append_transaction(&txn).await.unwrap();
-        storage.update_transaction_status(txn_id, TransactionStatus::Committed)
-            .await.unwrap();
+        storage
+            .update_transaction_status(txn_id, TransactionStatus::Committed)
+            .await
+            .unwrap();
 
         // Load transactions - committed ones should not be loaded
         let loaded_txns = storage.load_transactions().unwrap();

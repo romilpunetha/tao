@@ -1,15 +1,15 @@
-use serde::Serialize;
 use rand;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 
 use crate::error::{AppError, AppResult};
+use crate::infrastructure::id_generator::{get_id_generator, TaoIdGenerator};
 use crate::infrastructure::shard_topology::{
     ConsistentHashingShardManager, ShardHealth, ShardId, ShardInfo, ShardManager, ShardTopology,
 };
-use crate::infrastructure::id_generator::{TaoIdGenerator, get_id_generator};
 use crate::infrastructure::tao_core::TaoId;
 
 /// Information about a specific shard (no operations, just metadata)
@@ -139,7 +139,9 @@ impl TaoQueryRouter {
             // No owner - assign random shard
             let available_shards = self.shard_manager.get_healthy_shards().await;
             if available_shards.is_empty() {
-                return Err(AppError::ShardError("No healthy shards available".to_string()));
+                return Err(AppError::ShardError(
+                    "No healthy shards available".to_string(),
+                ));
             }
 
             // Pick a random shard

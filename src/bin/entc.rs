@@ -31,7 +31,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn generate_code() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 TAO Code Generator - Generating entities with builder pattern and save() function...");
+    println!(
+        "🚀 TAO Code Generator - Generating entities with builder pattern and save() function..."
+    );
 
     // Create schema registry with all schemas
     let registry = create_schema_registry();
@@ -55,7 +57,7 @@ fn generate_code() -> Result<(), Box<dyn std::error::Error>> {
             println!("  1. Run thrift compiler on .thrift files to generate entity.rs");
             println!("  2. Use Entity::create().field().save().await pattern");
             println!("  3. Compile and test the generated code");
-        },
+        }
         Err(error) => {
             eprintln!("❌ Entity generation failed: {}", error);
             return Err(error.into());
@@ -65,14 +67,13 @@ fn generate_code() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 fn validate_schemas_cmd() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔍 Validating schema definitions...");
 
     match validate_schemas() {
         Ok(()) => {
             println!("✅ All schemas are valid!");
-        },
+        }
         Err(errors) => {
             eprintln!("❌ Schema validation failed:");
             for error in errors {

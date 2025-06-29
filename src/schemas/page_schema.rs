@@ -1,17 +1,16 @@
 // Page entity schema
 
-use crate::ent_framework::{
-    EntSchema, FieldDefinition, EdgeDefinition, 
-    FieldType, FieldDefault
-};
 use crate::ent_framework::EntityType;
+use crate::ent_framework::{EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType};
 
 /// Page entity schema
 pub struct PageSchema;
 
 impl EntSchema for PageSchema {
-    fn entity_type() -> EntityType { EntityType::EntPage }
-    
+    fn entity_type() -> EntityType {
+        EntityType::EntPage
+    }
+
     fn fields() -> Vec<FieldDefinition> {
         vec![
             FieldDefinition::new("name", FieldType::String),
@@ -20,7 +19,7 @@ impl EntSchema for PageSchema {
                 .default_value(FieldDefault::Function("now".to_string())),
         ]
     }
-    
+
     fn edges() -> Vec<EdgeDefinition> {
         vec![
             EdgeDefinition::from("followers", EntityType::EntUser, "followed_pages"),

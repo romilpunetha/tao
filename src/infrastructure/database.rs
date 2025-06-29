@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use sqlx::{Column, Row, Transaction, ValueRef};
 use sqlx::postgres::{PgPool, Postgres};
-use sqlx::sqlite::Sqlite; // Added Sqlite for generic DatabaseTransaction
+use sqlx::sqlite::Sqlite;
+use sqlx::{Column, Row, Transaction, ValueRef}; // Added Sqlite for generic DatabaseTransaction
 
 // Generic database types - framework agnostic
 pub type ObjectId = i64;
@@ -90,32 +90,24 @@ impl DatabaseTransaction {
     /// Commit the transaction
     pub async fn commit(self) -> AppResult<()> {
         match self {
-            DatabaseTransaction::Postgres(tx) => {
-                tx.commit()
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to commit postgres transaction: {}", e)))
-            }
-            DatabaseTransaction::Sqlite(tx) => {
-                tx.commit()
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to commit sqlite transaction: {}", e)))
-            }
+            DatabaseTransaction::Postgres(tx) => tx.commit().await.map_err(|e| {
+                AppError::DatabaseError(format!("Failed to commit postgres transaction: {}", e))
+            }),
+            DatabaseTransaction::Sqlite(tx) => tx.commit().await.map_err(|e| {
+                AppError::DatabaseError(format!("Failed to commit sqlite transaction: {}", e))
+            }),
         }
     }
 
     /// Rollback the transaction
     pub async fn rollback(self) -> AppResult<()> {
         match self {
-            DatabaseTransaction::Postgres(tx) => {
-                tx.rollback()
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to rollback postgres transaction: {}", e)))
-            }
-            DatabaseTransaction::Sqlite(tx) => {
-                tx.rollback()
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to rollback sqlite transaction: {}", e)))
-            }
+            DatabaseTransaction::Postgres(tx) => tx.rollback().await.map_err(|e| {
+                AppError::DatabaseError(format!("Failed to rollback postgres transaction: {}", e))
+            }),
+            DatabaseTransaction::Sqlite(tx) => tx.rollback().await.map_err(|e| {
+                AppError::DatabaseError(format!("Failed to rollback sqlite transaction: {}", e))
+            }),
         }
     }
 
@@ -123,7 +115,9 @@ impl DatabaseTransaction {
     pub fn as_postgres_mut(&mut self) -> AppResult<&mut Transaction<'static, Postgres>> {
         match self {
             DatabaseTransaction::Postgres(tx) => Ok(tx),
-            DatabaseTransaction::Sqlite(_) => Err(AppError::DatabaseError("Transaction is not PostgreSQL".to_string())),
+            DatabaseTransaction::Sqlite(_) => Err(AppError::DatabaseError(
+                "Transaction is not PostgreSQL".to_string(),
+            )),
         }
     }
 
@@ -131,7 +125,9 @@ impl DatabaseTransaction {
     pub fn as_sqlite_mut(&mut self) -> AppResult<&mut Transaction<'static, Sqlite>> {
         match self {
             DatabaseTransaction::Sqlite(tx) => Ok(tx),
-            DatabaseTransaction::Postgres(_) => Err(AppError::DatabaseError("Transaction is not SQLite".to_string())),
+            DatabaseTransaction::Postgres(_) => Err(AppError::DatabaseError(
+                "Transaction is not SQLite".to_string(),
+            )),
         }
     }
 }
@@ -162,8 +158,12 @@ pub trait DatabaseInterface: Send + Sync {
         atype: AssociationType,
         id2: ObjectId,
     ) -> AppResult<bool>;
-    async fn association_exists(&self, id1: ObjectId, atype: AssociationType, id2: ObjectId)
-        -> AppResult<bool>;
+    async fn association_exists(
+        &self,
+        id1: ObjectId,
+        atype: AssociationType,
+        id2: ObjectId,
+    ) -> AppResult<bool>;
     async fn count_associations(&self, id1: ObjectId, atype: AssociationType) -> AppResult<u64>;
 
     // Index operations - Generic association counting
