@@ -1,6 +1,6 @@
 // Rust entity struct generation module
 // Note: This module generates complementary Rust code that works with thrift-generated structs
-use crate::ent_framework::{EntityType, FieldDefinition, SchemaRegistry}; // Import utils for field_type_to_rust
+use crate::framework::schema::ent_schema::{EntityType, FieldDefinition, SchemaRegistry}; // Import utils for field_type_to_rust
 
 pub struct RustGenerator<'a> {
     _registry: &'a SchemaRegistry,

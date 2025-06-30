@@ -1,12 +1,6 @@
 use crate::{
     error::AppResult,
-    infrastructure::{
-        tao::Tao,
-        tao_core::{create_tao_association, current_time_millis, TaoOperations},
-    },
-    // domains::user::EntUser,
-    // domains::post::EntPost,
-    // domains::comment::EntComment,
+    infrastructure::{tao_core::tao::Tao, tao_core::tao_core::{create_tao_association, current_time_millis, TaoOperations}},
 };
 use serde_json::json;
 use std::sync::Arc;

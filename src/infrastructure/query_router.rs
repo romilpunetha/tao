@@ -10,7 +10,7 @@ use crate::infrastructure::id_generator::TaoIdGenerator;
 use crate::infrastructure::shard_topology::{
     ConsistentHashingShardManager, ShardHealth, ShardId, ShardInfo, ShardManager, ShardTopology,
 };
-use crate::infrastructure::tao_core::TaoId;
+use crate::infrastructure::tao_core::tao_core::TaoId;
 
 /// Information about a specific shard (no operations, just metadata)
 #[derive(Debug, Clone)]

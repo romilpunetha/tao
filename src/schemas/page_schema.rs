@@ -1,7 +1,7 @@
 // Page entity schema
 
-use crate::ent_framework::EntityType;
-use crate::ent_framework::{EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType};
+use crate::framework::schema::ent_schema::EntityType;
+use crate::framework::schema::ent_schema::{EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType};
 
 /// Page entity schema
 pub struct PageSchema;

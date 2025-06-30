@@ -1,6 +1,6 @@
 // Thrift file generation module
 use super::utils;
-use crate::ent_framework::{EntityType, FieldDefinition, FieldType, SchemaRegistry};
+use crate::framework::schema::ent_schema::{EntityType, FieldDefinition, FieldType, SchemaRegistry};
 
 pub struct ThriftGenerator<'a> {
     _registry: &'a SchemaRegistry,

@@ -3,7 +3,7 @@ use sqlx::{sqlite::Sqlite, sqlite::SqlitePool, Column, QueryBuilder, Row, ValueR
 use std::collections::HashMap;
 
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::database::{
+use crate::infrastructure::database::database::{
     AssocQuery, AssocQueryResult, Association, AssociationType, DatabaseInterface,
     DatabaseTransaction, Object, ObjectId, ObjectQuery, ObjectQueryResult, ObjectType,
 };
@@ -185,7 +185,7 @@ impl DatabaseInterface for SqliteDatabase {
     }
 
     async fn create_object(&self, id: ObjectId, otype: ObjectType, data: Vec<u8>) -> AppResult<()> {
-        let now = crate::infrastructure::tao_core::current_time_millis();
+        let now = crate::infrastructure::tao_core::tao_core::current_time_millis();
         sqlx::query(
             "INSERT INTO tao_objects (id, otype, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)",
         )
@@ -201,7 +201,7 @@ impl DatabaseInterface for SqliteDatabase {
     }
 
     async fn update_object(&self, id: ObjectId, data: Vec<u8>) -> AppResult<()> {
-        let now = crate::infrastructure::tao_core::current_time_millis();
+        let now = crate::infrastructure::tao_core::tao_core::current_time_millis();
         let result = sqlx::query(
             "UPDATE tao_objects SET data = ?, time_updated = ?, version = version + 1 WHERE id = ?",
         )
@@ -370,7 +370,7 @@ impl DatabaseInterface for SqliteDatabase {
         atype: AssociationType,
         delta: i64,
     ) -> AppResult<()> {
-        let now = crate::infrastructure::tao_core::current_time_millis();
+        let now = crate::infrastructure::tao_core::tao_core::current_time_millis();
         sqlx::query(
             "INSERT OR REPLACE INTO tao_association_counts (id, atype, count, updated_time) VALUES (?, ?, COALESCE((SELECT count FROM tao_association_counts WHERE id = ? AND atype = ?), 0) + ?, ?)",
         )
@@ -406,7 +406,7 @@ impl DatabaseInterface for SqliteDatabase {
         otype: ObjectType,
         data: Vec<u8>,
     ) -> AppResult<()> {
-        let now = crate::infrastructure::tao_core::current_time_millis();
+        let now = crate::infrastructure::tao_core::tao_core::current_time_millis();
         let sqlite_tx = tx.as_sqlite_mut()?;
 
         sqlx::query(
@@ -485,7 +485,7 @@ impl DatabaseInterface for SqliteDatabase {
         atype: AssociationType,
         delta: i64,
     ) -> AppResult<()> {
-        let now = crate::infrastructure::tao_core::current_time_millis();
+        let now = crate::infrastructure::tao_core::tao_core::current_time_millis();
         let sqlite_tx = tx.as_sqlite_mut()?;
 
         sqlx::query(

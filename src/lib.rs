@@ -1,10 +1,11 @@
 // TAO Database - Clean architecture implementation
 
 // Ent Framework - Entity schema system and code generation
-pub mod ent_framework;
+// Ent Framework - Entity schema system and code generation
+pub mod framework;
 
 // Modular Code Generation System
-pub mod codegen;
+// pub mod codegen; // Moved to framework
 
 // Core types and primitives
 pub mod core;

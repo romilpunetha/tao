@@ -3,7 +3,7 @@
 
 use crate::error::AppResult;
 use crate::infrastructure::global_tao::get_global_tao;
-use crate::infrastructure::tao_core::TaoOperations;
+use crate::infrastructure::tao_core::tao_core::TaoOperations;
 use async_trait::async_trait;
 use std::sync::Arc;
 use thrift::protocol::TSerializable;

@@ -1,5 +1,5 @@
 use crate::error::AppResult;
-use crate::infrastructure::tao_core::{TaoAssociation, TaoId, TaoObject};
+use crate::infrastructure::tao_core::tao_core::{TaoAssociation, TaoId, TaoObject};
 use async_trait::async_trait;
 use std::time::Duration;
 

@@ -1,7 +1,7 @@
 // User Entity Schema - Example of Meta's Ent framework schema definition
 // Demonstrates bidirectional edges, field validation, and constraints
 
-use crate::ent_framework::{
+use crate::framework::schema::ent_schema::{
     AnnotationDefinition, EdgeDefinition, EntSchema, EntityType, FieldDefault, FieldDefinition,
     FieldType, FieldValidator, IndexDefinition,
 };

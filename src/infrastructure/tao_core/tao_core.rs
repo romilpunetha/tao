@@ -9,17 +9,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::ent_framework::ent_builder::EntBuilder;
-use crate::ent_framework::Entity;
-use crate::infrastructure::{
-    association_registry::AssociationRegistry,
-    database::{
-        AssocQuery, Association, AssociationType, DatabaseInterface, DatabaseTransaction, Object,
-        ObjectId, ObjectQuery, ObjectType, PostgresDatabase, Timestamp,
-    },
-    query_router::{QueryRouterConfig, TaoQueryRouter},
-    shard_topology::{ShardHealth, ShardId, ShardInfo},
-};
+use crate::framework::builder::ent_builder::EntBuilder;
+use crate::framework::entity::ent_trait::Entity;
+use crate::infrastructure::association_registry::AssociationRegistry;
+use crate::infrastructure::database::database::{AssocQueryResult, DatabaseInterface, ObjectQueryResult, PostgresDatabase, AssocQuery, Association, AssociationType, Object, ObjectId, ObjectQuery, ObjectType, Timestamp, DatabaseTransaction};
+use crate::infrastructure::query_router::{QueryRouterConfig, TaoQueryRouter};
+use crate::infrastructure::shard_topology::{ShardHealth, ShardId, ShardInfo};
+use crate::infrastructure::viewer::viewer::ViewerContext;
 use sqlx::postgres::PgPoolOptions;
 
 /// Current time in milliseconds since Unix epoch
@@ -199,16 +195,15 @@ pub trait TaoOperations: Send + Sync + std::fmt::Debug {
     // Object operations
     async fn create<B: EntBuilder + Send>(
         &self,
-        builder: B,
+        state: B::BuilderState,
         owner_id: Option<TaoId>,
-    ) -> AppResult<B::EntityType>
+    ) -> AppResult<B>
     where
         Self: Sized,
-        B::EntityType: Send + Sync,
+        B::BuilderState: Send + Sync,
     {
         let id = self.generate_id(owner_id).await?;
-        let entity = builder
-            .build(id)
+        let entity = B::build(state, id)
             .map_err(|e| AppError::Validation(e.to_string()))?;
 
         let validation_errors = entity.validate()?;
@@ -220,12 +215,13 @@ pub trait TaoOperations: Send + Sync + std::fmt::Debug {
         }
 
         let data = entity.serialize_to_bytes()?;
-        let otype = B::entity_type().to_string();
+        let otype = <B as EntBuilder>::entity_type().to_string();
 
         self.create_object(id, otype, data).await?;
 
         Ok(entity)
     }
+
 
     async fn generate_id(&self, owner_id: Option<TaoId>) -> AppResult<TaoId>;
     async fn create_object(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<()>;
@@ -291,6 +287,44 @@ pub trait TaoOperations: Send + Sync + std::fmt::Debug {
     // Custom queries (for advanced use cases)
     async fn execute_query(&self, query: String) -> AppResult<Vec<HashMap<String, String>>>;
 }
+
+/// Extension trait for unified builder operations
+/// Separate trait to avoid trait object compatibility issues with generics
+#[async_trait]
+pub trait TaoEntityBuilder: TaoOperations {
+    /// Create entity using unified builder pattern
+    async fn create_entity<E: EntBuilder + Send + Sync>(
+        &self,
+        state: E::BuilderState,
+    ) -> AppResult<E>
+    where
+        E::BuilderState: Send + Sync,
+    {
+        let id = self.generate_id(None).await?;
+        let entity = E::build(state, id)
+            .map_err(|e| AppError::Validation(e))?;
+
+        // Validate entity
+        let validation_errors = entity.validate()?;
+        if !validation_errors.is_empty() {
+            return Err(AppError::Validation(format!(
+                "Validation failed: {}",
+                validation_errors.join(", ")
+            )));
+        }
+
+        // Serialize and store
+        let data = entity.serialize_to_bytes()?;
+        let otype = <E as EntBuilder>::entity_type().to_string();
+
+        self.create_object(id, otype, data).await?;
+
+        Ok(entity)
+    }
+}
+
+// Blanket implementation for all TaoOperations
+impl<T: TaoOperations> TaoEntityBuilder for T {}
 
 /// TaoCore - Core TAO implementation following Meta's architecture
 /// Internal TAO layer that handles the actual Meta TAO logic
@@ -677,164 +711,3 @@ pub fn create_tao_association(
         data,
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::infrastructure::database::DatabaseInterface;
-//     use crate::infrastructure::query_router::QueryRouterConfig;
-//     use crate::infrastructure::shard_topology::{ShardHealth, ShardInfo};
-//     use crate::infrastructure::sqlite_database::SqliteDatabase; // Use SqliteDatabase // Removed unused imports
-
-//     async fn setup_tao_core() -> Arc<TaoCore> {
-//         // Initialize in-memory SQLite database for testing
-//         let sqlite_db = Arc::new(SqliteDatabase::new_in_memory().await.unwrap());
-
-//         // Setup a query router
-//         let query_router_config = QueryRouterConfig::default();
-//         let query_router = Arc::new(TaoQueryRouter::new(query_router_config).await);
-
-//         // Add a mock shard to the query router
-//         let shard_info = ShardInfo {
-//             shard_id: 0,
-//             health: ShardHealth::Healthy,
-//             connection_string: "sqlite_in_memory".to_string(),
-//             region: "test-region".to_string(),
-//             replicas: vec![],
-//             last_health_check: current_time_millis(),
-//             load_factor: 0.0,
-//         };
-//         query_router
-//             .add_shard(shard_info, sqlite_db as Arc<dyn DatabaseInterface>)
-//             .await
-//             .unwrap();
-
-//         let association_registry = Arc::new(AssociationRegistry::new());
-//         Arc::new(TaoCore::new(query_router, association_registry))
-//     }
-
-//     #[tokio::test]
-//     async fn test_obj_add_get() {
-//         let tao = setup_tao_core().await;
-//         let user_data = serde_json::json!({"name": "Test User", "email": "test@example.com"})
-//             .to_string()
-//             .into_bytes();
-//         let user_id = tao
-//             .obj_add("user".to_string(), user_data.clone(), None)
-//             .await
-//             .unwrap();
-
-//         let fetched_user = tao.obj_get(user_id).await.unwrap().unwrap();
-//         assert_eq!(fetched_user.id, user_id);
-//         assert_eq!(fetched_user.otype, "user");
-//         assert_eq!(fetched_user.data, user_data);
-//     }
-
-//     #[tokio::test]
-//     async fn test_assoc_add_get_count() {
-//         let tao = setup_tao_core().await;
-//         let user1_id = tao
-//             .obj_add("user".to_string(), b"{}".to_vec(), None)
-//             .await
-//             .unwrap();
-//         let user2_id = tao
-//             .obj_add("user".to_string(), b"{}".to_vec(), None)
-//             .await
-//             .unwrap();
-
-//         let assoc = create_tao_association(user1_id, "friend".to_string(), user2_id, None);
-//         tao.assoc_add(assoc.clone()).await.unwrap();
-
-//         let fetched_assocs = tao
-//             .assoc_get(TaoAssocQuery {
-//                 id1: user1_id,
-//                 atype: "friend".to_string(),
-//                 id2_set: None,
-//                 high_time: None,
-//                 low_time: None,
-//                 limit: None,
-//                 offset: None,
-//             })
-//             .await
-//             .unwrap();
-//         assert_eq!(fetched_assocs.len(), 1);
-//         assert_eq!(fetched_assocs[0].id2, user2_id);
-
-//         let count = tao
-//             .assoc_count(user1_id, "friend".to_string())
-//             .await
-//             .unwrap();
-//         assert_eq!(count, 1);
-//     }
-
-//     #[tokio::test]
-//     async fn test_get_neighbor_ids() {
-//         let tao = setup_tao_core().await;
-//         let user1_id = tao
-//             .obj_add("user".to_string(), b"{}".to_vec(), None)
-//             .await
-//             .unwrap();
-//         let user2_id = tao
-//             .obj_add("user".to_string(), b"{}".to_vec(), None)
-//             .await
-//             .unwrap();
-//         let user3_id = tao
-//             .obj_add("user".to_string(), b"{}".to_vec(), None)
-//             .await
-//             .unwrap();
-
-//         tao.assoc_add(create_tao_association(
-//             user1_id,
-//             "friend".to_string(),
-//             user2_id,
-//             None,
-//         ))
-//         .await
-//         .unwrap();
-//         tao.assoc_add(create_tao_association(
-//             user1_id,
-//             "friend".to_string(),
-//             user3_id,
-//             None,
-//         ))
-//         .await
-//         .unwrap();
-
-//         let neighbors = tao
-//             .get_neighbor_ids(user1_id, "friend".to_string(), None)
-//             .await
-//             .unwrap();
-//         assert_eq!(neighbors.len(), 2);
-//         assert!(neighbors.contains(&user2_id));
-//         assert!(neighbors.contains(&user3_id));
-//     }
-
-//     #[tokio::test]
-//     async fn test_get_all_objects_of_type() {
-//         let tao = setup_tao_core().await;
-//         tao.obj_add("user".to_string(), b"user1".to_vec(), None)
-//             .await
-//             .unwrap();
-//         tao.obj_add("user".to_string(), b"user2".to_vec(), None)
-//             .await
-//             .unwrap();
-//         tao.obj_add("post".to_string(), b"post1".to_vec(), None)
-//             .await
-//             .unwrap();
-
-//         let users = tao
-//             .get_all_objects_of_type("user".to_string(), None)
-//             .await
-//             .unwrap();
-//         assert_eq!(users.len(), 2);
-//         assert!(users.iter().any(|o| o.data == b"user1"));
-//         assert!(users.iter().any(|o| o.data == b"user2"));
-
-//         let posts = tao
-//             .get_all_objects_of_type("post".to_string(), None)
-//             .await
-//             .unwrap();
-//         assert_eq!(posts.len(), 1);
-//         assert!(posts.iter().any(|o| o.data == b"post1"));
-//     }
-// }

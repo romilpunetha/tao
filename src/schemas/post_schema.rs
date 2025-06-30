@@ -1,9 +1,8 @@
 // Post Entity Schema - Demonstrates complex relationships and constraints
 // Shows unidirectional vs bidirectional edge configurations
 
-use crate::ent_framework::EntityType;
-use crate::ent_framework::{
-    AnnotationDefinition, EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType,
+use crate::framework::schema::ent_schema::{
+    AnnotationDefinition, EdgeDefinition, EntSchema, EntityType, FieldDefault, FieldDefinition, FieldType,
     FieldValidator, IndexDefinition,
 };
 

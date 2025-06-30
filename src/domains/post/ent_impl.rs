@@ -3,20 +3,20 @@
 // Regenerate with: cargo run --bin entc generate
 
 use std::sync::Arc;
-use crate::ent_framework::Entity;
+use crate::framework::entity::ent_trait::Entity;
 use crate::error::AppResult;
 use super::entity::EntPost;
-use crate::infrastructure::tao_core::{TaoOperations, TaoObject};
-use crate::infrastructure::tao::Tao;
+use crate::infrastructure::tao_core::tao_core::{TaoOperations, TaoObject};
+use crate::infrastructure::tao_core::tao::Tao;
 use thrift::protocol::{TCompactInputProtocol, TSerializable};
 use crate::infrastructure::global_tao::get_global_tao;
 use std::io::Cursor;
 use regex;
 use crate::domains::page::EntPage;
-use crate::domains::comment::EntComment;
 use crate::domains::event::EntEvent;
-use crate::domains::group::EntGroup;
 use crate::domains::user::EntUser;
+use crate::domains::group::EntGroup;
+use crate::domains::comment::EntComment;
 
 impl Entity for EntPost {
     const ENTITY_TYPE: &'static str = "ent_post";
@@ -205,7 +205,7 @@ impl EntPost {
                 .ok_or_else(|| crate::error::AppError::NotFound(format!("EntPage with id {} not found", target_id)))?
         ).await?;
 
-        let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "appears_on_pages".to_string(), target_id, None);
+        let assoc = crate::infrastructure::tao_core::tao_core::create_tao_association(self.id(), "appears_on_pages".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
     }
@@ -249,7 +249,7 @@ impl EntPost {
                 .ok_or_else(|| crate::error::AppError::NotFound(format!("EntGroup with id {} not found", target_id)))?
         ).await?;
 
-        let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "shared_in_groups".to_string(), target_id, None);
+        let assoc = crate::infrastructure::tao_core::tao_core::create_tao_association(self.id(), "shared_in_groups".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
     }
@@ -293,7 +293,7 @@ impl EntPost {
                 .ok_or_else(|| crate::error::AppError::NotFound(format!("EntEvent with id {} not found", target_id)))?
         ).await?;
 
-        let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "related_events".to_string(), target_id, None);
+        let assoc = crate::infrastructure::tao_core::tao_core::create_tao_association(self.id(), "related_events".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
     }

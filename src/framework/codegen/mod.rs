@@ -7,7 +7,7 @@ pub mod rust_generator;
 pub mod thrift_generator;
 pub mod utils;
 
-use crate::ent_framework::{EdgeDefinition, EntityType, FieldDefinition, SchemaRegistry};
+use crate::framework::schema::ent_schema::{EdgeDefinition, EntityType, FieldDefinition, SchemaRegistry};
 use std::collections::HashMap;
 
 /// Main code generator orchestrator
@@ -21,7 +21,7 @@ impl CodeGenerator {
     }
 
     /// Generate all code for entities - modular pipeline
-    pub fn generate_all(&self) -> Result<HashMap<EntityType, String>, String> {
+    pub fn generate_all(&self) -> Result<(), String> {
         println!("🚀 Starting modular Ent codegen pipeline");
 
         // Step 1: Clean up previous generated files
@@ -80,7 +80,7 @@ impl CodeGenerator {
 
         println!("🎉 Modular codegen pipeline completed successfully!");
 
-        Ok(HashMap::new())
+        Ok(())
     }
 
     /// Collect schemas from registry

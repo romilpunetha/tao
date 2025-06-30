@@ -2,7 +2,7 @@
 // Equivalent to Meta's Ent hooks for pre/post operation logic
 
 use crate::{
-    ent_framework::EntityType,
+    framework::schema::ent_schema::EntityType,
     error::{AppError, AppResult},
 };
 use async_trait::async_trait;

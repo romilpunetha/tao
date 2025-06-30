@@ -184,7 +184,7 @@ impl WalStorage {
 
     /// Append a new transaction to the WAL
     pub async fn append_transaction(&self, txn: &PendingTransaction) -> AppResult<()> {
-        let current_time = crate::infrastructure::tao_core::current_time_millis();
+        let current_time = crate::infrastructure::tao_core::tao_core::current_time_millis();
 
         // Serialize transaction data
         let txn_data = serde_json::to_vec(txn).map_err(|e| {
@@ -254,7 +254,7 @@ impl WalStorage {
         txn_id: TxnId,
         status: TransactionStatus,
     ) -> AppResult<()> {
-        let current_time = crate::infrastructure::tao_core::current_time_millis();
+        let current_time = crate::infrastructure::tao_core::tao_core::current_time_millis();
 
         // Create status update entry
         let log_entry = WalLogEntry {
@@ -379,8 +379,8 @@ pub struct WalStorageStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infrastructure::tao_core::TaoAssociation;
-    use crate::infrastructure::write_ahead_log::TaoOperation;
+    use crate::infrastructure::tao_core::tao_core::TaoAssociation;
+use crate::infrastructure::storage::write_ahead_log::TaoOperation;
     use tempfile::tempdir;
 
     #[tokio::test]

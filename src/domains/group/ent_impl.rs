@@ -3,17 +3,17 @@
 // Regenerate with: cargo run --bin entc generate
 
 use std::sync::Arc;
-use crate::ent_framework::Entity;
+use crate::framework::entity::ent_trait::Entity;
 use crate::error::AppResult;
 use super::entity::EntGroup;
-use crate::infrastructure::tao_core::{TaoOperations, TaoObject};
-use crate::infrastructure::tao::Tao;
+use crate::infrastructure::tao_core::tao_core::{TaoOperations, TaoObject};
+use crate::infrastructure::tao_core::tao::Tao;
 use thrift::protocol::{TCompactInputProtocol, TSerializable};
 use crate::infrastructure::global_tao::get_global_tao;
 use std::io::Cursor;
 use regex;
-use crate::domains::user::EntUser;
 use crate::domains::post::EntPost;
+use crate::domains::user::EntUser;
 
 impl Entity for EntGroup {
     const ENTITY_TYPE: &'static str = "ent_group";

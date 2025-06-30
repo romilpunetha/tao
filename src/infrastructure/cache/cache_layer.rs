@@ -8,8 +8,8 @@ use tokio::sync::RwLock;
 use tracing::{info, instrument};
 
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::tao_core::{TaoAssociation, TaoId, TaoObject};
-use crate::infrastructure::traits::CacheInterface;
+use crate::infrastructure::tao_core::tao_core::{TaoAssociation, TaoId, TaoObject};
+use crate::infrastructure::traits::traits::CacheInterface;
 
 /// Cache entry with TTL and versioning
 #[derive(Debug, Clone)]

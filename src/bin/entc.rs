@@ -2,10 +2,8 @@
 // Equivalent to Meta's entc command for generating entity code from schemas
 
 use std::env;
-use tao_database::{
-    codegen::CodeGenerator,
-    schemas::{create_schema_registry, validate_schemas},
-};
+use tao_database::framework::codegen::CodeGenerator;
+use tao_database::schemas::{create_schema_registry, validate_schemas};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();

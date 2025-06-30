@@ -1,7 +1,7 @@
 // Ent Privacy System - Access control and data protection
 // Equivalent to Meta's Ent privacy policies for query and mutation control
 
-use crate::{ent_framework::EntityType, error::AppResult};
+use crate::{framework::schema::ent_schema::EntityType, error::AppResult};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;

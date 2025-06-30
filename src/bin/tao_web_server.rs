@@ -17,21 +17,19 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
 
 use sqlx::postgres::PgPoolOptions;
-use tao_database::domains::user::entity::EntUser; // Separate import
-use tao_database::ent_framework::Entity;
+use tao_database::domains::user::EntUser;
+use tao_database::framework::entity::ent_trait::Entity;
 use tao_database::{
     error::{AppError, AppResult},
     infrastructure::{
         association_registry::AssociationRegistry,
-        database::{DatabaseInterface, PostgresDatabase},
-        global_tao::{get_global_tao, set_global_tao}, // Import global_tao functions
-        initialize_cache_default,
-        initialize_metrics_default,
+        database::database::{DatabaseInterface, PostgresDatabase},
+        global_tao::{get_global_tao, set_global_tao},
         query_router::{QueryRouterConfig, TaoQueryRouter},
         shard_topology::{ShardHealth, ShardInfo},
-        tao::Tao,
-        tao_core::{create_tao_association, current_time_millis, TaoId, TaoOperations},
-        write_ahead_log::{TaoWriteAheadLog, WalConfig},
+        tao_core::tao::Tao,
+        tao_core::tao_core::{create_tao_association, current_time_millis, TaoId, TaoOperations},
+        storage::write_ahead_log::{TaoWriteAheadLog, WalConfig},
     },
 };
 
@@ -556,7 +554,7 @@ async fn main() -> AppResult<()> {
     // let metrics = initialize_metrics_default().await?;
 
     // Create TaoCore instance
-    let tao_core = Arc::new(tao_database::infrastructure::tao_core::TaoCore::new(
+    let tao_core = Arc::new(tao_database::infrastructure::tao_core::tao_core::TaoCore::new(
         query_router.clone(),
         association_registry.clone(),
     ));

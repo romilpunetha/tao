@@ -1,5 +1,5 @@
 // Utility functions for code generation
-use crate::ent_framework::{EntityType, FieldType};
+use crate::framework::schema::ent_schema::{EntityType, FieldType};
 
 /// Convert entity type to domain name (e.g., EntUser -> "user")
 pub fn entity_domain_name(entity_type: &EntityType) -> String {

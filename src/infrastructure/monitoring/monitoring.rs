@@ -2,7 +2,7 @@
 // Implements comprehensive metrics, tracing, and health monitoring
 
 use crate::error::AppResult;
-use crate::infrastructure::tao_core::TaoId;
+use crate::infrastructure::tao_core::tao_core::TaoId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;

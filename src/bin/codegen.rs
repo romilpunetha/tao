@@ -1,8 +1,6 @@
 // TAO Code Generator - Generate entities from schema definitions
-use tao_database::{
-    codegen::CodeGenerator,
-    schemas::{create_schema_registry, validate_schemas},
-};
+use tao_database::framework::codegen::CodeGenerator;
+use tao_database::schemas::{create_schema_registry, validate_schemas};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,25 +35,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate all entity code
     println!("\n🔧 Generating entity code...");
     match generator.generate_all() {
-        Ok(generated_code) => {
+        Ok(_) => {
             println!("✅ Code generation completed successfully!");
-            println!("📝 Generated {} entity files:", generated_code.len());
-
-            for (entity_type, code_content) in &generated_code {
-                let lines = code_content.lines().count();
-                println!("   - {}: {} lines of code", entity_type, lines);
-            }
-
-            // Print summary
-            let total_lines: usize = generated_code
-                .values()
-                .map(|code| code.lines().count())
-                .sum();
-
-            println!("\n📈 Generation Summary:");
-            println!("   - Total entities: {}", generated_code.len());
-            println!("   - Total lines of code: {}", total_lines);
-            println!("   - Generated files location: src/domains/*/");
+            println!("📝 Generated entity files in src/domains/!");
 
             println!("\n🎯 Next steps:");
             println!("   1. Review generated entities in src/domains/");

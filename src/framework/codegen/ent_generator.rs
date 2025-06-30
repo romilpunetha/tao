@@ -1,6 +1,6 @@
 // Ent trait implementation generator
 use super::utils;
-use crate::ent_framework::{EdgeDefinition, EntityType, FieldDefinition, SchemaRegistry};
+use crate::framework::schema::ent_schema::{EdgeDefinition, EntityType, FieldDefinition, SchemaRegistry};
 
 pub struct EntGenerator<'a> {
     _registry: &'a SchemaRegistry,
@@ -60,11 +60,10 @@ impl<'a> EntGenerator<'a> {
     /// Generate necessary imports including cross-entity imports for edges
     fn generate_imports(&self, struct_name: &str, edges: &[EdgeDefinition]) -> String {
         let mut imports = String::from("use std::sync::Arc;\n");
-        imports.push_str("use crate::ent_framework::Entity;\n");
+        imports.push_str("use crate::framework::entity::ent_trait::Entity;\n");
         imports.push_str("use crate::error::AppResult;\n");
         imports.push_str(&format!("use super::entity::{};\n", struct_name));
-        imports.push_str("use crate::infrastructure::tao_core::{TaoOperations, TaoObject};\n");
-        imports.push_str("use crate::infrastructure::tao::Tao;\n");
+        imports.push_str("use crate::infrastructure::tao_core::tao_core::{TaoOperations, TaoObject};\n");        imports.push_str("use crate::infrastructure::tao_core::tao::Tao;\n");
         imports.push_str("use thrift::protocol::{TCompactInputProtocol, TSerializable};\n");
         imports.push_str("use crate::infrastructure::global_tao::get_global_tao;\n");
         imports.push_str("use std::io::Cursor;\n");
@@ -78,22 +77,22 @@ impl<'a> EntGenerator<'a> {
             // Skip importing the current entity type to avoid duplicate imports
             if edge.target_entity != current_entity_type {
                 let entity_import = match edge.target_entity {
-                    crate::ent_framework::EntityType::EntUser => {
+                    EntityType::EntUser => {
                         "use crate::domains::user::EntUser;"
                     }
-                    crate::ent_framework::EntityType::EntPost => {
+                    EntityType::EntPost => {
                         "use crate::domains::post::EntPost;"
                     }
-                    crate::ent_framework::EntityType::EntGroup => {
+                    EntityType::EntGroup => {
                         "use crate::domains::group::EntGroup;"
                     }
-                    crate::ent_framework::EntityType::EntPage => {
+                    EntityType::EntPage => {
                         "use crate::domains::page::EntPage;"
                     }
-                    crate::ent_framework::EntityType::EntEvent => {
+                    EntityType::EntEvent => {
                         "use crate::domains::event::EntEvent;"
                     }
-                    crate::ent_framework::EntityType::EntComment => {
+                    EntityType::EntComment => {
                         "use crate::domains::comment::EntComment;"
                     }
                 };
@@ -111,14 +110,14 @@ impl<'a> EntGenerator<'a> {
     }
 
     /// Helper to determine entity type from struct name
-    fn entity_type_from_struct_name(&self, struct_name: &str) -> crate::ent_framework::EntityType {
+    fn entity_type_from_struct_name(&self, struct_name: &str) -> crate::framework::schema::ent_schema::EntityType {
         match struct_name {
-            "EntUser" => crate::ent_framework::EntityType::EntUser,
-            "EntPost" => crate::ent_framework::EntityType::EntPost,
-            "EntGroup" => crate::ent_framework::EntityType::EntGroup,
-            "EntPage" => crate::ent_framework::EntityType::EntPage,
-            "EntEvent" => crate::ent_framework::EntityType::EntEvent,
-            "EntComment" => crate::ent_framework::EntityType::EntComment,
+            "EntUser" => crate::framework::schema::ent_schema::EntityType::EntUser,
+            "EntPost" => crate::framework::schema::ent_schema::EntityType::EntPost,
+            "EntGroup" => crate::framework::schema::ent_schema::EntityType::EntGroup,
+            "EntPage" => crate::framework::schema::ent_schema::EntityType::EntPage,
+            "EntEvent" => crate::framework::schema::ent_schema::EntityType::EntEvent,
+            "EntComment" => crate::framework::schema::ent_schema::EntityType::EntComment,
             _ => panic!("Unknown entity type for struct: {}", struct_name),
         }
     }
@@ -157,7 +156,7 @@ impl<'a> EntGenerator<'a> {
             // Generate validation for required fields
             if !field.optional {
                 match field.field_type {
-                    crate::ent_framework::FieldType::String => {
+                    crate::framework::schema::ent_schema::FieldType::String => {
                         impl_block.push_str(&format!(
                             "        // Validate {} (required)\n",
                             field_display
@@ -172,7 +171,7 @@ impl<'a> EntGenerator<'a> {
                         ));
                         impl_block.push_str("        }\n");
                     }
-                    crate::ent_framework::FieldType::Bool => {
+                    crate::framework::schema::ent_schema::FieldType::Bool => {
                         // Bool fields don't need empty validation
                     }
                     _ => {}
@@ -182,7 +181,7 @@ impl<'a> EntGenerator<'a> {
             // Generate validation based on field validators
             for validator in &field.validators {
                 match validator {
-                    crate::ent_framework::FieldValidator::MinLength(min) => {
+                    crate::framework::schema::ent_schema::FieldValidator::MinLength(min) => {
                         if field.optional {
                             impl_block.push_str(&format!(
                                 "        // Validate {} min length\n",
@@ -210,7 +209,7 @@ impl<'a> EntGenerator<'a> {
                             impl_block.push_str("        }\n");
                         }
                     }
-                    crate::ent_framework::FieldValidator::MaxLength(max) => {
+                    crate::framework::schema::ent_schema::FieldValidator::MaxLength(max) => {
                         if field.optional {
                             impl_block.push_str(&format!(
                                 "        // Validate {} max length\n",
@@ -238,7 +237,7 @@ impl<'a> EntGenerator<'a> {
                             impl_block.push_str("        }\n");
                         }
                     }
-                    crate::ent_framework::FieldValidator::Pattern(pattern) => {
+                    crate::framework::schema::ent_schema::FieldValidator::Pattern(pattern) => {
                         impl_block
                             .push_str(&format!("        // Validate {} pattern\n", field_display));
                         impl_block.push_str(&format!(
@@ -329,12 +328,12 @@ impl<'a> EntGenerator<'a> {
             for edge in edges {
                 let method_name = format!("get_{}", edge.name);
                 let return_type = match edge.target_entity {
-                    crate::ent_framework::EntityType::EntUser => "EntUser",
-                    crate::ent_framework::EntityType::EntPost => "EntPost",
-                    crate::ent_framework::EntityType::EntGroup => "EntGroup",
-                    crate::ent_framework::EntityType::EntPage => "EntPage",
-                    crate::ent_framework::EntityType::EntEvent => "EntEvent",
-                    crate::ent_framework::EntityType::EntComment => "EntComment",
+                    EntityType::EntUser => "EntUser",
+                    EntityType::EntPost => "EntPost",
+                    EntityType::EntGroup => "EntGroup",
+                    EntityType::EntPage => "EntPage",
+                    EntityType::EntEvent => "EntEvent",
+                    EntityType::EntComment => "EntComment",
                 };
 
                 let _edge_type = edge.name.to_uppercase();
@@ -412,7 +411,7 @@ impl<'a> EntGenerator<'a> {
                     edge_methods.push_str(&format!("                .ok_or_else(|| crate::error::AppError::NotFound(format!(\"{} with id {{}} not found\", target_id)))?\n", return_type));
                     edge_methods.push_str("        ).await?;\n");
                     edge_methods.push_str("\n");
-                    edge_methods.push_str(&format!("        let assoc = crate::infrastructure::tao::create_tao_association(self.id(), \"{}\".to_string(), target_id, None);\n", edge.name));
+                    edge_methods.push_str(&format!("        let assoc = crate::infrastructure::tao_core::tao_core::create_tao_association(self.id(), \"{}\".to_string(), target_id, None);\n", edge.name));
                     edge_methods.push_str("        tao.assoc_add(assoc).await?;\n");
                     edge_methods.push_str("        Ok(())\n");
                     edge_methods.push_str("    }\n");
