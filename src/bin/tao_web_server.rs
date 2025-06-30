@@ -355,10 +355,6 @@ async fn get_graph_data() -> impl IntoResponse {
     (StatusCode::OK, Json(response))
 }
 
-async fn serve_frontend() -> Html<&'static str> {
-    Html(include_str!("../../static/index.html"))
-}
-
 async fn health_check() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "healthy",
@@ -573,10 +569,8 @@ async fn main() -> AppResult<()> {
 
     // Application state
     let app_state = AppState {}; // Use global TAO
-
-    // Build router with CORS for frontend
+ 
     let app = Router::new()
-        .route("/", get(serve_frontend))
         .route("/api/health", get(health_check))
         .route("/api/users", get(get_all_users).post(create_user))
         .route("/api/users/{id}", get(get_user))

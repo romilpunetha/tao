@@ -9,7 +9,7 @@ import {
   Toolbar,
   Typography,
   Container,
-  Grid,
+  Stack,
   Paper,
   Button,
   Chip,
@@ -157,17 +157,17 @@ const AppContent: React.FC = () => {
 
       {/* Main Content */}
       <Container maxWidth={false} sx={{ mt: 3, mb: 3 }}>
-        <Grid container spacing={3} sx={{ height: 'calc(100vh - 180px)' }}>
+        <Stack direction="row" spacing={3} sx={{ height: 'calc(100vh - 180px)' }}>
           {/* Left Panel - User Management */}
-          <Grid item xs={12} lg={3}>
+          <Box sx={{ width: '25%' }}>
             <UserManagement
               selectedUserId={selectedUserId}
               onUserSelect={setSelectedUserId}
             />
-          </Grid>
+          </Box>
 
           {/* Center Panel - Graph Visualization */}
-          <Grid item xs={12} lg={6}>
+          <Box sx={{ width: '50%' }}>
             {graphData ? (
               <GraphVisualization
                 graphData={graphData}
@@ -198,17 +198,17 @@ const AppContent: React.FC = () => {
                 </Button>
               </Paper>
             )}
-          </Grid>
+          </Box>
 
           {/* Right Panel - Social Actions */}
-          <Grid item xs={12} lg={3}>
+          <Box sx={{ width: '25%' }}>
             <SocialActions
               users={users}
               selectedUserId={selectedUserId}
               onActionComplete={handleActionComplete}
             />
-          </Grid>
-        </Grid>
+          </Box>
+        </Stack>
       </Container>
 
       {/* Footer */}

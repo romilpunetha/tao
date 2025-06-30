@@ -12,10 +12,10 @@ use thrift::protocol::{TCompactInputProtocol, TSerializable};
 use crate::infrastructure::global_tao::get_global_tao;
 use std::io::Cursor;
 use regex;
-use crate::domains::post::EntPost;
-use crate::domains::group::EntGroup;
-use crate::domains::event::EntEvent;
 use crate::domains::page::EntPage;
+use crate::domains::post::EntPost;
+use crate::domains::event::EntEvent;
+use crate::domains::group::EntGroup;
 
 impl Entity for EntUser {
     const ENTITY_TYPE: &'static str = "ent_user";
@@ -80,8 +80,7 @@ impl Entity for EntUser {
 
 impl EntUser {
     /// Create an entity from a TaoObject
-    pub async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntUser>> {
-        let tao = get_global_tao()?.clone();
+    pub(crate) async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntUser>> {
         if tao_obj.otype != EntUser::ENTITY_TYPE {
             return Ok(None);
         }
@@ -90,9 +89,6 @@ impl EntUser {
         let mut protocol = TCompactInputProtocol::new(&mut cursor);
         let mut entity = EntUser::read_from_in_protocol(&mut protocol)
             .map_err(|e| crate::error::AppError::SerializationError(e.to_string()))?;
-        
-        // Update ID from TaoObject
-        entity.id = tao_obj.id;
         
         Ok(Some(entity))
     }
@@ -126,6 +122,12 @@ impl EntUser {
     /// Add friend association via TAO
     pub async fn add_friend(&self, target_id: i64) -> AppResult<()> {
         let tao = get_global_tao()?.clone();
+        // Fetch the EntUser to ensure it exists before creating an association
+        let _friend = EntUser::from_tao_object(
+            tao.obj_get(target_id).await?
+                .ok_or_else(|| crate::error::AppError::NotFound(format!("EntUser with id {} not found", target_id)))?
+        ).await?;
+
         let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "friends".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
@@ -164,6 +166,12 @@ impl EntUser {
     /// Add following association via TAO
     pub async fn add_following(&self, target_id: i64) -> AppResult<()> {
         let tao = get_global_tao()?.clone();
+        // Fetch the EntUser to ensure it exists before creating an association
+        let _following = EntUser::from_tao_object(
+            tao.obj_get(target_id).await?
+                .ok_or_else(|| crate::error::AppError::NotFound(format!("EntUser with id {} not found", target_id)))?
+        ).await?;
+
         let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "following".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
@@ -250,6 +258,12 @@ impl EntUser {
     /// Add liked post association via TAO
     pub async fn add_liked_post(&self, target_id: i64) -> AppResult<()> {
         let tao = get_global_tao()?.clone();
+        // Fetch the EntPost to ensure it exists before creating an association
+        let _liked_post = EntPost::from_tao_object(
+            tao.obj_get(target_id).await?
+                .ok_or_else(|| crate::error::AppError::NotFound(format!("EntPost with id {} not found", target_id)))?
+        ).await?;
+
         let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "liked_posts".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
@@ -288,6 +302,12 @@ impl EntUser {
     /// Add group association via TAO
     pub async fn add_group(&self, target_id: i64) -> AppResult<()> {
         let tao = get_global_tao()?.clone();
+        // Fetch the EntGroup to ensure it exists before creating an association
+        let _group = EntGroup::from_tao_object(
+            tao.obj_get(target_id).await?
+                .ok_or_else(|| crate::error::AppError::NotFound(format!("EntGroup with id {} not found", target_id)))?
+        ).await?;
+
         let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "groups".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
@@ -326,6 +346,12 @@ impl EntUser {
     /// Add followed page association via TAO
     pub async fn add_followed_page(&self, target_id: i64) -> AppResult<()> {
         let tao = get_global_tao()?.clone();
+        // Fetch the EntPage to ensure it exists before creating an association
+        let _followed_page = EntPage::from_tao_object(
+            tao.obj_get(target_id).await?
+                .ok_or_else(|| crate::error::AppError::NotFound(format!("EntPage with id {} not found", target_id)))?
+        ).await?;
+
         let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "followed_pages".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
@@ -364,6 +390,12 @@ impl EntUser {
     /// Add attending event association via TAO
     pub async fn add_attending_event(&self, target_id: i64) -> AppResult<()> {
         let tao = get_global_tao()?.clone();
+        // Fetch the EntEvent to ensure it exists before creating an association
+        let _attending_event = EntEvent::from_tao_object(
+            tao.obj_get(target_id).await?
+                .ok_or_else(|| crate::error::AppError::NotFound(format!("EntEvent with id {} not found", target_id)))?
+        ).await?;
+
         let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "attending_events".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())

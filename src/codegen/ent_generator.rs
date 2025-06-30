@@ -40,7 +40,7 @@ impl<'a> EntGenerator<'a> {
 
         // Start a new impl block for associated functions
         ent_content.push_str(&format!("impl {} {{\n", struct_name));
- 
+
         // Generate from_tao_object method (associated function)
         ent_content.push_str(&self.generate_from_tao_object_method_content(&struct_name)?);
 
@@ -289,14 +289,13 @@ impl<'a> EntGenerator<'a> {
         let mut method_block = String::new();
         method_block.push_str("    /// Create an entity from a TaoObject\n");
         method_block.push_str(&format!(
-            "    pub async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<{}>> {{\n",
+            "    pub(crate) async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<{}>> {{\n",
             struct_name
-        )); // Removed tao parameter
-        method_block.push_str("        let tao = get_global_tao()?.clone();\n"); // Get global tao instance
+        ));
         method_block.push_str(&format!(
             "        if tao_obj.otype != {}::ENTITY_TYPE {{\n",
             struct_name
-        )); // Use struct_name::ENTITY_TYPE
+        ));
         method_block.push_str("            return Ok(None);\n");
         method_block.push_str("        }\n");
         method_block.push_str("        \n");
@@ -309,14 +308,10 @@ impl<'a> EntGenerator<'a> {
         ));
         method_block.push_str("            .map_err(|e| crate::error::AppError::SerializationError(e.to_string()))?;\n");
         method_block.push_str("        \n");
-        method_block.push_str("        // Update ID from TaoObject\n");
-        method_block.push_str("        entity.id = tao_obj.id;\n");
-        method_block.push_str("        \n");
         method_block.push_str("        Ok(Some(entity))\n");
         method_block.push_str("    }\n\n");
         Ok(method_block)
     }
-
 
     /// Generate edge traversal methods based on schema with real TAO implementation
     fn generate_edge_methods_content(
@@ -354,27 +349,21 @@ impl<'a> EntGenerator<'a> {
                     method_name, return_type
                 ));
                 edge_methods.push_str("        let tao = get_global_tao()?.clone();\n"); // Get global tao instance
-                edge_methods.push_str(&format!("        let neighbor_ids = tao.get_neighbor_ids(self.id(), \"{}\".to_string(), Some(100)).await?;
-", edge.name));
+                edge_methods.push_str(&format!("        let neighbor_ids = tao.get_neighbor_ids(self.id(), \"{}\".to_string(), Some(100)).await?;\n", edge.name));
                 edge_methods.push_str(
-                    "
-",
+                    "\n",
                 );
                 edge_methods.push_str(
-                    "        let mut results = Vec::new();
-",
+                    "        let mut results = Vec::new();\n",
                 );
                 edge_methods.push_str(
-                    "        for id in neighbor_ids {
-",
+                    "        for id in neighbor_ids {\n",
                 );
                 edge_methods.push_str(&format!(
-                    "            if let Some(tao_obj) = tao.obj_get(id).await? {{
-"
+                    "            if let Some(tao_obj) = tao.obj_get(id).await? {{\n"
                 ));
                 edge_methods.push_str(&format!(
-                    "                if let Some(entity) = {}::from_tao_object(tao_obj).await? {{
-",
+                    "                if let Some(entity) = {}::from_tao_object(tao_obj).await? {{\n",
                     return_type
                 )); // Removed tao parameter
                 edge_methods.push_str("                    results.push(entity);\n");
@@ -417,6 +406,12 @@ impl<'a> EntGenerator<'a> {
                         add_method
                     )); // Removed tao parameter
                     edge_methods.push_str("        let tao = get_global_tao()?.clone();\n"); // Get global tao instance
+                    edge_methods.push_str(&format!("        // Fetch the {} to ensure it exists before creating an association\n", return_type));
+                    edge_methods.push_str(&format!("        let _{} = {}::from_tao_object(\n", edge.name.trim_end_matches('s'), return_type));
+                    edge_methods.push_str(&format!("            tao.obj_get(target_id).await?\n"));
+                    edge_methods.push_str(&format!("                .ok_or_else(|| crate::error::AppError::NotFound(format!(\"{} with id {{}} not found\", target_id)))?\n", return_type));
+                    edge_methods.push_str("        ).await?;\n");
+                    edge_methods.push_str("\n");
                     edge_methods.push_str(&format!("        let assoc = crate::infrastructure::tao::create_tao_association(self.id(), \"{}\".to_string(), target_id, None);\n", edge.name));
                     edge_methods.push_str("        tao.assoc_add(assoc).await?;\n");
                     edge_methods.push_str("        Ok(())\n");

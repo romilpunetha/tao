@@ -12,8 +12,8 @@ use thrift::protocol::{TCompactInputProtocol, TSerializable};
 use crate::infrastructure::global_tao::get_global_tao;
 use std::io::Cursor;
 use regex;
-use crate::domains::post::EntPost;
 use crate::domains::user::EntUser;
+use crate::domains::post::EntPost;
 
 impl Entity for EntGroup {
     const ENTITY_TYPE: &'static str = "ent_group";
@@ -37,8 +37,7 @@ impl Entity for EntGroup {
 
 impl EntGroup {
     /// Create an entity from a TaoObject
-    pub async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntGroup>> {
-        let tao = get_global_tao()?.clone();
+    pub(crate) async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntGroup>> {
         if tao_obj.otype != EntGroup::ENTITY_TYPE {
             return Ok(None);
         }
@@ -47,9 +46,6 @@ impl EntGroup {
         let mut protocol = TCompactInputProtocol::new(&mut cursor);
         let mut entity = EntGroup::read_from_in_protocol(&mut protocol)
             .map_err(|e| crate::error::AppError::SerializationError(e.to_string()))?;
-        
-        // Update ID from TaoObject
-        entity.id = tao_obj.id;
         
         Ok(Some(entity))
     }

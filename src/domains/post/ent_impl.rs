@@ -12,11 +12,11 @@ use thrift::protocol::{TCompactInputProtocol, TSerializable};
 use crate::infrastructure::global_tao::get_global_tao;
 use std::io::Cursor;
 use regex;
+use crate::domains::page::EntPage;
 use crate::domains::comment::EntComment;
 use crate::domains::event::EntEvent;
 use crate::domains::group::EntGroup;
 use crate::domains::user::EntUser;
-use crate::domains::page::EntPage;
 
 impl Entity for EntPost {
     const ENTITY_TYPE: &'static str = "ent_post";
@@ -61,8 +61,7 @@ impl Entity for EntPost {
 
 impl EntPost {
     /// Create an entity from a TaoObject
-    pub async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntPost>> {
-        let tao = get_global_tao()?.clone();
+    pub(crate) async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntPost>> {
         if tao_obj.otype != EntPost::ENTITY_TYPE {
             return Ok(None);
         }
@@ -71,9 +70,6 @@ impl EntPost {
         let mut protocol = TCompactInputProtocol::new(&mut cursor);
         let mut entity = EntPost::read_from_in_protocol(&mut protocol)
             .map_err(|e| crate::error::AppError::SerializationError(e.to_string()))?;
-        
-        // Update ID from TaoObject
-        entity.id = tao_obj.id;
         
         Ok(Some(entity))
     }
@@ -203,6 +199,12 @@ impl EntPost {
     /// Add appears on page association via TAO
     pub async fn add_appears_on_page(&self, target_id: i64) -> AppResult<()> {
         let tao = get_global_tao()?.clone();
+        // Fetch the EntPage to ensure it exists before creating an association
+        let _appears_on_page = EntPage::from_tao_object(
+            tao.obj_get(target_id).await?
+                .ok_or_else(|| crate::error::AppError::NotFound(format!("EntPage with id {} not found", target_id)))?
+        ).await?;
+
         let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "appears_on_pages".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
@@ -241,6 +243,12 @@ impl EntPost {
     /// Add shared in group association via TAO
     pub async fn add_shared_in_group(&self, target_id: i64) -> AppResult<()> {
         let tao = get_global_tao()?.clone();
+        // Fetch the EntGroup to ensure it exists before creating an association
+        let _shared_in_group = EntGroup::from_tao_object(
+            tao.obj_get(target_id).await?
+                .ok_or_else(|| crate::error::AppError::NotFound(format!("EntGroup with id {} not found", target_id)))?
+        ).await?;
+
         let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "shared_in_groups".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())
@@ -279,6 +287,12 @@ impl EntPost {
     /// Add related event association via TAO
     pub async fn add_related_event(&self, target_id: i64) -> AppResult<()> {
         let tao = get_global_tao()?.clone();
+        // Fetch the EntEvent to ensure it exists before creating an association
+        let _related_event = EntEvent::from_tao_object(
+            tao.obj_get(target_id).await?
+                .ok_or_else(|| crate::error::AppError::NotFound(format!("EntEvent with id {} not found", target_id)))?
+        ).await?;
+
         let assoc = crate::infrastructure::tao::create_tao_association(self.id(), "related_events".to_string(), target_id, None);
         tao.assoc_add(assoc).await?;
         Ok(())

@@ -38,8 +38,7 @@ impl Entity for EntEvent {
 
 impl EntEvent {
     /// Create an entity from a TaoObject
-    pub async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntEvent>> {
-        let tao = get_global_tao()?.clone();
+    pub(crate) async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntEvent>> {
         if tao_obj.otype != EntEvent::ENTITY_TYPE {
             return Ok(None);
         }
@@ -48,9 +47,6 @@ impl EntEvent {
         let mut protocol = TCompactInputProtocol::new(&mut cursor);
         let mut entity = EntEvent::read_from_in_protocol(&mut protocol)
             .map_err(|e| crate::error::AppError::SerializationError(e.to_string()))?;
-        
-        // Update ID from TaoObject
-        entity.id = tao_obj.id;
         
         Ok(Some(entity))
     }

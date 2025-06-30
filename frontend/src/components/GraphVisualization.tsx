@@ -78,7 +78,7 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
 
     // Prepare data
     const nodes: D3Node[] = (graphData.nodes || []).map(d => ({ ...d }));
-    const edges: D3Edge[] = (graphData.edges || []).map(d => ({ ...d }));
+    const edges: D3Edge[] = (graphData.edges || []).map(edge => ({ ...edge }));
 
     console.log("GraphVisualization: Nodes received:", nodes);
     console.log("GraphVisualization: Edges received:", edges);
@@ -105,12 +105,12 @@ export const GraphVisualization: React.FC<GraphVisualizationProps> = ({
       .attr('stroke', d => {
         switch (d.edge_type) {
           case 'friendship': return '#4CAF50';
-          case 'follow': return '#2196F3';
+          case 'follows': return '#2196F3';
           case 'like': return '#E91E63';
           default: return '#999';
         }
       })
-      .attr('stroke-dasharray', d => d.edge_type === 'follow' ? '5,5' : 'none')
+      .attr('stroke-dasharray', d => d.edge_type === 'follows' ? '5,5' : 'none')
       .attr('opacity', 0.7);
 
     // Create link labels

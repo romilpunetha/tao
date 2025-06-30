@@ -1,22 +1,17 @@
-// API Response wrapper
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
 }
 
-// Core entity types
 export interface User {
   id: number;
   username: string;
   email: string;
   full_name?: string;
   bio?: string;
-  profile_picture_url?: string;
   is_verified: boolean;
   location?: string;
-  created_time?: number; // Optional as it might not be sent on creation
-  last_active_time?: number; // Optional
 }
 
 export interface Post {
@@ -31,106 +26,60 @@ export interface Post {
   like_count: number;
   comment_count: number;
   share_count: number;
+  tags?: string;
+  mentions?: string;
 }
 
-// Request types
 export interface CreateUserRequest {
-  username: string;
+  name: string;
   email: string;
-  full_name?: string;
   bio?: string;
-  location?: string;
 }
 
 export interface CreatePostRequest {
   author_id: number;
   content: string;
-  post_type: string;
-  visibility?: string;
   media_url?: string;
 }
 
 export interface CreateFriendshipRequest {
-  user1_id: number;
-  user2_id: number;
-  relationship_type?: string;
+  from_user_id: number;
+  to_user_id: number;
 }
 
 export interface CreateFollowRequest {
-  follower_id: number;
-  followee_id: number;
-  follow_type?: string;
+  from_user_id: number;
+  to_user_id: number;
 }
 
 export interface CreateLikeRequest {
   user_id: number;
-  target_id: number;
-  reaction_type: string;
+  post_id: number;
 }
 
-// Graph visualization types
-export interface GraphNode {
+export interface UserStats {
+  friend_count: number;
+  follower_count: number;
+  following_count: number;
+  like_count: number;
+  post_count: number;
+}
+
+export interface D3Node extends d3.SimulationNodeDatum {
   id: string;
   name: string;
   node_type: string;
   verified: boolean;
 }
 
-export interface GraphEdge {
-  source: string;
-  target: string;
+export interface D3Edge extends d3.SimulationLinkDatum<D3Node> {
+  source: string | D3Node;
+  target: string | D3Node;
   edge_type: string;
   weight: number;
 }
 
 export interface GraphData {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-}
-
-// Backend API raw response types for graph
-export interface TaoObjectJson {
-  id: number;
-  otype: string;
-  data: any; // Use 'any' as it's a flexible JSON value
-  created_time: number;
-  updated_time: number;
-  version: number;
-}
-
-export interface TaoAssociationJson {
-  id1: number;
-  atype: string;
-  id2: number;
-  time: number;
-  data?: any; // Use 'any' as it's a flexible JSON value
-}
-
-export interface GraphDataResponse {
-  objects: TaoObjectJson[];
-  associations: TaoAssociationJson[];
-}
-
-// User statistics
-export interface UserStats {
-  user_id: number;
-  friend_count: number;
-  follower_count: number;
-  following_count: number;
-  post_count: number;
-}
-
-// D3 specific types for visualization
-export interface D3Node extends GraphNode {
-  x?: number;
-  y?: number;
-  fx?: number | null;
-  fy?: number | null;
-  index?: number;
-}
-
-export interface D3Edge extends Omit<GraphEdge, 'source' | 'target'> {
-  source: D3Node | string;
-  target: D3Node | string;
-  index?: number;
+  nodes: D3Node[];
+  edges: D3Edge[];
 }

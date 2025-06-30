@@ -37,8 +37,7 @@ impl Entity for EntPage {
 
 impl EntPage {
     /// Create an entity from a TaoObject
-    pub async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntPage>> {
-        let tao = get_global_tao()?.clone();
+    pub(crate) async fn from_tao_object(tao_obj: TaoObject) -> AppResult<Option<EntPage>> {
         if tao_obj.otype != EntPage::ENTITY_TYPE {
             return Ok(None);
         }
@@ -47,9 +46,6 @@ impl EntPage {
         let mut protocol = TCompactInputProtocol::new(&mut cursor);
         let mut entity = EntPage::read_from_in_protocol(&mut protocol)
             .map_err(|e| crate::error::AppError::SerializationError(e.to_string()))?;
-        
-        // Update ID from TaoObject
-        entity.id = tao_obj.id;
         
         Ok(Some(entity))
     }
