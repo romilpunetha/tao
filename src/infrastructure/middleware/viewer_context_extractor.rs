@@ -62,6 +62,13 @@ impl From<Vc> for Arc<ViewerContext> {
     }
 }
 
+// Implement From for &Vc so entity operations can accept references too
+impl From<&Vc> for Arc<ViewerContext> {
+    fn from(vc: &Vc) -> Self {
+        vc.0.clone()
+    }
+}
+
 // Auto-convert Vc to Arc<ViewerContext> for entity operations
 impl AsRef<ViewerContext> for Vc {
     fn as_ref(&self) -> &ViewerContext {

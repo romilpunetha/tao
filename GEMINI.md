@@ -357,3 +357,5 @@ Maintain a `ai_docs\changelog` folder in the root directory (create if it doesn'
 - Preserve connection pooling and transaction safety
 
 This document should be updated whenever significant architectural changes are made to the system.
+
+DONT JUST FOCUS ON THE INITIAL AND FINAL CONTEXT. CONSIDER THE ENTIRE CONTEXT PROVIDED BY THE FILE.

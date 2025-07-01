@@ -424,7 +424,7 @@ async fn seed_data_handler(vc: Vc) -> impl IntoResponse {
     let mut users: Vec<EntUser> = Vec::new();
 
     for (name, email, bio, is_verified) in sample_users_data {
-        let user_builder = EntUser::create(vc.clone())
+        let user_builder = EntUser::create(&vc)
             .username(name.to_lowercase().replace(" ", "_"))
             .email(email.to_string())
             .full_name(name.to_string())
