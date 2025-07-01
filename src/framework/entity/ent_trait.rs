@@ -2,7 +2,6 @@
 // Single trait that provides both entity identity and common CRUD operations
 
 use crate::error::AppResult;
-use crate::infrastructure::global_tao::get_global_tao;
 use crate::infrastructure::tao_core::tao_core::TaoOperations;
 use async_trait::async_trait;
 use std::sync::Arc;

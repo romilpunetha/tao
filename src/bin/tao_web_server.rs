@@ -180,7 +180,9 @@ async fn create_relationship(Json(request): Json<CreateRelationshipRequest>) -> 
 
 async fn get_user(Path(user_id): Path<TaoId>) -> impl IntoResponse {
     // Tao operations are now accessed via get_global_tao()
-    match EntUser::gen_nullable(Some(user_id)).await {
+    let tao = get_global_tao().expect("TAO not initialized");
+    let tao_ops: Arc<dyn TaoOperations> = tao.clone();
+    match EntUser::gen_nullable(&tao_ops, Some(user_id)).await {
         Ok(Some(user)) => {
             let response = ApiResponse {
                 success: true,
@@ -218,7 +220,9 @@ async fn get_user(Path(user_id): Path<TaoId>) -> impl IntoResponse {
 }
 
 async fn get_all_users() -> impl IntoResponse {
-    match EntUser::gen_all().await {
+    let tao = get_global_tao().expect("TAO not initialized");
+    let tao_ops: Arc<dyn TaoOperations> = tao.clone();
+    match EntUser::gen_all(&tao_ops).await {
         Ok(user_objs) => {
             let mut users = Vec::new();
             for user in user_objs {
@@ -255,7 +259,9 @@ async fn get_all_users() -> impl IntoResponse {
 async fn get_graph_data() -> impl IntoResponse {
     info!("Fetching graph data.");
 
-    let users = match EntUser::gen_all().await {
+    let tao = get_global_tao().expect("TAO not initialized");
+    let tao_ops: Arc<dyn TaoOperations> = tao.clone();
+    let users = match EntUser::gen_all(&tao_ops).await {
         Ok(users) => users,
         Err(e) => {
             warn!("Failed to get all users for graph data: {}", e);

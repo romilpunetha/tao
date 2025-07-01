@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::framework::builder::ent_builder::EntBuilder;
+use crate::framework::builder::has_tao::HasTao;
 use crate::framework::entity::ent_trait::Entity;
 use crate::infrastructure::association_registry::AssociationRegistry;
 use crate::infrastructure::database::database::{
@@ -304,9 +305,20 @@ pub trait TaoEntityBuilder: TaoOperations {
         mut state: E::BuilderState,
     ) -> AppResult<E>
     where
-        E::BuilderState: Send + Sync,
+        E::BuilderState: Send + Sync + HasTao;
+}
+
+// Implementation for Arc<dyn TaoOperations>
+#[async_trait]
+impl TaoEntityBuilder for Arc<dyn TaoOperations> {
+    async fn create_entity<E: EntBuilder + Send + Sync>(
+        &self,
+        mut state: E::BuilderState,
+    ) -> AppResult<E>
+    where
+        E::BuilderState: Send + Sync + HasTao,
     {
-        state.tao = Some(Arc::new(self.clone()));
+        state.set_tao(Arc::clone(self));
         let id = self.generate_id(None).await?;
         let entity = E::build(state, id).map_err(AppError::Validation)?;
 
@@ -328,9 +340,6 @@ pub trait TaoEntityBuilder: TaoOperations {
         Ok(entity)
     }
 }
-
-// Blanket implementation for all TaoOperations
-impl<T: TaoOperations> TaoEntityBuilder for T {}
 
 /// TaoCore - Core TAO implementation following Meta's architecture
 /// Internal TAO layer that handles the actual Meta TAO logic

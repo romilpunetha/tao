@@ -304,7 +304,7 @@ Adapt your approach based on project needs and user preferences, always aiming t
 1. **Always preserve existing patterns**: Follow established conventions for entities, builders, and traits
 2. **Use code generation**: Don't manually create entity files; use the codegen system
 3. **Maintain type safety**: Ensure all changes preserve compile-time guarantees
-4. **Test thoroughly**: Verify both builder patterns (`build()` and `savex()`) work correctly
+4. **Test thoroughly**: Verify both builder patterns (`build()` and `savex()`) work correctly. Also run `cargo build` after changes to ensure that the changes don't contain syntax and semantic errors. 
 5. **Update documentation**: Keep this file current with any architectural changes
 
 ### Adaptive Workflow

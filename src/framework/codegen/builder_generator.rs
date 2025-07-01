@@ -54,6 +54,9 @@ impl<'a> BuilderGenerator<'a> {
             fields,
         )?);
 
+        // Generate HasTao implementation for builder state
+        builder_content.push_str(&self.generate_has_tao_impl(&state_name)?);
+
         // Generate entity create() method
         builder_content.push_str(&self.generate_entity_create_method(&struct_name, &state_name)?);
 
@@ -69,9 +72,10 @@ impl<'a> BuilderGenerator<'a> {
         format!(
             r#"use crate::framework::entity::ent_trait::Entity;
 use crate::framework::builder::ent_builder::EntBuilder;
-use crate::infrastructure::tao_core::tao_core::TaoEntityBuilder;
+use crate::framework::builder::has_tao::HasTao;
+use crate::infrastructure::tao_core::tao_core::{{TaoEntityBuilder, TaoOperations}};
 use crate::infrastructure::tao_core::tao_core::current_time_millis;
-use crate::error::AppResult;
+use crate::error::{{AppResult, AppError}};
 use super::entity::{};
 use crate::infrastructure::global_tao::get_global_tao;
 use std::sync::Arc;
@@ -135,16 +139,9 @@ use std::sync::Arc;
             impl_block.push_str("    }\n\n");
         }
 
-        // Add with_tao method
-        impl_block.push_str(
-            "    pub fn with_tao(mut self, tao: Arc<dyn TaoOperations>) -> Self {\n",
-        );
-        impl_block.push_str("        self.tao = Some(tao);\n");
-        impl_block.push_str("        self\n");
-        impl_block.push_str("    }\n\n");
-
         // Generate savex() method that uses TAO
         impl_block.push_str(&self.generate_savex_method(entity_type, struct_name)?);
+
 
         impl_block.push_str("}\n\n");
         Ok(impl_block)
@@ -161,7 +158,7 @@ use std::sync::Arc;
             "    pub async fn savex(self) -> AppResult<{}> {{\n",
             struct_name
         ));
-        savex_method.push_str("        let tao = self.tao.ok_or_else(|| AppError::Internal(\"Tao instance not provided to builder\").to_string()))?;\n");
+        savex_method.push_str("        let tao = self.get_tao().ok_or_else(|| AppError::Internal(\"Tao instance not provided to builder\".to_string()))?;\n");
         savex_method.push_str(&format!(
             "        tao.create_entity::<{}>(self).await\n",
             struct_name
@@ -258,5 +255,18 @@ use std::sync::Arc;
         create_method.push_str("}\n\n");
 
         Ok(create_method)
+    }
+
+    /// Generate HasTao implementation for builder state
+    fn generate_has_tao_impl(&self, state_name: &str) -> Result<String, String> {
+        let mut impl_block = format!("impl HasTao for {} {{\n", state_name);
+        impl_block.push_str("    fn get_tao(&self) -> Option<Arc<dyn TaoOperations>> {\n");
+        impl_block.push_str("        self.tao.clone()\n");
+        impl_block.push_str("    }\n\n");
+        impl_block.push_str("    fn set_tao(&mut self, tao: Arc<dyn TaoOperations>) {\n");
+        impl_block.push_str("        self.tao = Some(tao);\n");
+        impl_block.push_str("    }\n");
+        impl_block.push_str("}\n\n");
+        Ok(impl_block)
     }
 }
