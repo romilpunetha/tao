@@ -1,8 +1,7 @@
 use crate::{
     error::AppResult,
-    infrastructure::{tao_core::tao::Tao, tao_core::tao_core::{create_tao_association, current_time_millis, TaoOperations}},
+    infrastructure::tao_core::tao::Tao,
 };
-use serde_json::json;
 use std::sync::Arc;
 
 pub async fn seed_data_into_tao(_tao: Arc<Tao>) -> AppResult<()> {

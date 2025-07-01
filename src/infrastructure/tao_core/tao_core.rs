@@ -12,10 +12,9 @@ use tracing::info;
 use crate::framework::builder::ent_builder::EntBuilder;
 use crate::framework::entity::ent_trait::Entity;
 use crate::infrastructure::association_registry::AssociationRegistry;
-use crate::infrastructure::database::database::{AssocQueryResult, DatabaseInterface, ObjectQueryResult, PostgresDatabase, AssocQuery, Association, AssociationType, Object, ObjectId, ObjectQuery, ObjectType, Timestamp, DatabaseTransaction};
+use crate::infrastructure::database::database::{DatabaseInterface, PostgresDatabase, AssocQuery, Association, Object, ObjectQuery, DatabaseTransaction};
 use crate::infrastructure::query_router::{QueryRouterConfig, TaoQueryRouter};
 use crate::infrastructure::shard_topology::{ShardHealth, ShardId, ShardInfo};
-use crate::infrastructure::viewer::viewer::ViewerContext;
 use sqlx::postgres::PgPoolOptions;
 
 /// Current time in milliseconds since Unix epoch
@@ -54,6 +53,12 @@ pub struct DatabaseShardConfig {
 pub struct TaoConfig {
     pub database_shards: Vec<DatabaseShardConfig>,
     pub query_router_config: QueryRouterConfig,
+}
+
+impl Default for TaoConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TaoConfig {
@@ -302,7 +307,7 @@ pub trait TaoEntityBuilder: TaoOperations {
     {
         let id = self.generate_id(None).await?;
         let entity = E::build(state, id)
-            .map_err(|e| AppError::Validation(e))?;
+            .map_err(AppError::Validation)?;
 
         // Validate entity
         let validation_errors = entity.validate()?;
@@ -595,7 +600,7 @@ impl TaoOperations for TaoCore {
             let shard_id = self.query_router.get_shard_for_object(id).await;
             shard_groups
                 .entry(shard_id)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(id);
         }
 

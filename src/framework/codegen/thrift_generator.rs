@@ -71,7 +71,7 @@ impl<'a> ThriftGenerator<'a> {
                 typedefs.push_str(&format!("typedef string {}\n", typedef_name));
             }
         }
-        typedefs.push_str("\n");
+        typedefs.push('\n');
 
         Ok(typedefs)
     }

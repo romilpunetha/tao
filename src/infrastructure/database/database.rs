@@ -233,7 +233,7 @@ impl PostgresDatabase {
 
     /// Get connection pool statistics
     pub fn pool_stats(&self) -> (u32, u32) {
-        (self.pool.num_idle() as u32, self.pool.size() as u32)
+        (self.pool.num_idle() as u32, self.pool.size())
     }
 
     /// Initialize TAO database tables with date partitioning and ID sharding

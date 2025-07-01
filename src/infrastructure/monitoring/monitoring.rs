@@ -155,18 +155,15 @@ pub struct HealthStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ServiceStatus {
     Healthy,
     Degraded,
     Unhealthy,
+    #[default]
     Unknown,
 }
 
-impl Default for ServiceStatus {
-    fn default() -> Self {
-        ServiceStatus::Unknown
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentHealth {
@@ -188,6 +185,12 @@ pub struct HistogramMetrics {
     pub p99: f64,
     pub max: f64,
     pub min: f64,
+}
+
+impl Default for MetricsCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MetricsCollector {

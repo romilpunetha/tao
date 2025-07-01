@@ -291,7 +291,7 @@ impl TaoMultiTierCache {
     /// L1 cache operations
     async fn get_from_l1(&self, key: &str) -> Option<CacheEntry> {
         let mut cache = self.l1_cache.write().await;
-        if let Some(mut entry) = cache.get_mut(key) {
+        if let Some(entry) = cache.get_mut(key) {
             entry.access();
             Some(entry.clone())
         } else {
@@ -468,6 +468,12 @@ pub enum InvalidationReason {
     SchemaChange,
     ManualInvalidation,
     TTLExpired,
+}
+
+impl Default for CacheInvalidationCoordinator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CacheInvalidationCoordinator {
