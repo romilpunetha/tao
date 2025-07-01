@@ -356,7 +356,7 @@ impl<'a> EntGenerator<'a> {
                 edge_methods.push_str(
                     "        for id in neighbor_ids {\n",
                 );
-                edge_methods.push_str(&"            if let Some(tao_obj) = tao.obj_get(id).await? {\n".to_string());
+                edge_methods.push_str("            if let Some(tao_obj) = tao.obj_get(id).await? {\n");
                 edge_methods.push_str(&format!(
                     "                if let Some(entity) = {}::from_tao_object(tao_obj).await? {{\n",
                     return_type
@@ -403,7 +403,7 @@ impl<'a> EntGenerator<'a> {
                     edge_methods.push_str("        let tao = get_global_tao()?.clone();\n"); // Get global tao instance
                     edge_methods.push_str(&format!("        // Fetch the {} to ensure it exists before creating an association\n", return_type));
                     edge_methods.push_str(&format!("        let _{} = {}::from_tao_object(\n", edge.name.trim_end_matches('s'), return_type));
-                    edge_methods.push_str(&"            tao.obj_get(target_id).await?\n".to_string());
+                    edge_methods.push_str("            tao.obj_get(target_id).await?\n");
                     edge_methods.push_str(&format!("                .ok_or_else(|| crate::error::AppError::NotFound(format!(\"{} with id {{}} not found\", target_id)))?\n", return_type));
                     edge_methods.push_str("        ).await?;\n");
                     edge_methods.push('\n');

@@ -4,12 +4,11 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Json},
+    response::{IntoResponse, Json},
     routing::{get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
@@ -29,7 +28,6 @@ use tao_database::{
         shard_topology::{ShardHealth, ShardInfo},
         tao_core::tao::Tao,
         tao_core::tao_core::{create_tao_association, current_time_millis, TaoId, TaoOperations},
-        storage::write_ahead_log::{TaoWriteAheadLog, WalConfig},
     },
 };
 
@@ -503,11 +501,9 @@ async fn main() -> AppResult<()> {
     info!("🚀 Starting TAO Web Server...");
 
     // Initialize databases for sharding
-    let shard_urls = vec![
-        "postgresql://postgres:password@localhost:5432/tao_shard_1".to_string(),
+    let shard_urls = ["postgresql://postgres:password@localhost:5432/tao_shard_1".to_string(),
         "postgresql://postgres:password@localhost:5433/tao_shard_2".to_string(),
-        "postgresql://postgres:password@localhost:5434/tao_shard_3".to_string(),
-    ];
+        "postgresql://postgres:password@localhost:5434/tao_shard_3".to_string()];
 
     let query_router = Arc::new(TaoQueryRouter::new(QueryRouterConfig::default()).await);
 
