@@ -138,14 +138,33 @@ src/
     └── cli/               # CLI tools
 ```
 
-### Current File Organization (Legacy)
+### Current File Organization
 ```
 src/
-├── ent_framework/          # Core entity framework
-├── infrastructure/         # Mixed infrastructure components
-├── domains/                # Generated entity domains
-├── codegen/                # Code generation system
-└── bin/                    # Executable binaries
+├── core/                   # Core abstractions and types
+│   ├── types.rs           # TaoId, TaoTime, EntityId, EntityType (strong types)
+│   ├── traits.rs          # Core traits (DatabaseInterface, CacheInterface)
+│   └── error.rs           # Centralized error handling
+├── infrastructure/        # Clean infrastructure layer
+│   ├── database/          # Database implementations
+│   │   ├── postgres.rs    # PostgreSQL implementation
+│   │   └── mod.rs         # Database abstractions
+│   ├── cache/             # Caching implementations
+│   │   ├── memory.rs      # In-memory cache
+│   │   ├── redis.rs       # Redis cache
+│   │   └── mod.rs         # Cache abstractions
+│   ├── storage/           # Storage backends
+│   └── tao_core/          # Main TAO operations
+├── framework/             # Entity framework (renamed from ent_framework)
+│   ├── entity/            # Entity trait and implementations
+│   ├── builder/           # Unified builder trait (EntBuilder only)
+│   ├── schema/            # Schema definitions
+│   └── codegen/           # Code generation (moved from root)
+├── domains/               # Generated entity domains
+│   └── [user|post|comment|group|page|event]/
+└── applications/          # Application layer
+    ├── web_server.rs      # REST API server
+    └── cli/               # CLI tools
 ```
 
 ## Key Design Principles
