@@ -52,12 +52,14 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
 
     /// Load entity with nullable ID - returns None if not found (TYPE-SAFE)
     /// Only returns entities of the correct type, ensuring EntUser::gen_nullable(post_id) returns None
-    async fn gen_nullable(entity_id: Option<i64>) -> AppResult<Option<Self>> {
+    async fn gen_nullable(
+        tao: &Arc<dyn TaoOperations>,
+        entity_id: Option<i64>,
+    ) -> AppResult<Option<Self>> {
         match entity_id {
             Some(id) => {
                 // Use type-aware query to ensure we only get entities of the correct type
-                let objects = get_global_tao()?
-                    .clone()
+                let objects = tao
                     .get_by_id_and_type(vec![id], Self::ENTITY_TYPE.to_string())
                     .await?;
 
@@ -173,8 +175,7 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
         Ok(results)
     }
 
-    async fn gen_all() -> AppResult<Vec<Self>> {
-        let tao = get_global_tao()?.clone();
+    async fn gen_all(tao: &Arc<dyn TaoOperations>) -> AppResult<Vec<Self>> {
         let objects = tao
             .get_all_objects_of_type(Self::ENTITY_TYPE.to_string(), Some(1000))
             .await?;

@@ -74,6 +74,7 @@ use crate::infrastructure::tao_core::tao_core::current_time_millis;
 use crate::error::AppResult;
 use super::entity::{};
 use crate::infrastructure::global_tao::get_global_tao;
+use std::sync::Arc;
 
 "#,
             struct_name
@@ -97,7 +98,8 @@ use crate::infrastructure::global_tao::get_global_tao;
             let rust_type = utils::field_type_to_rust(&field.field_type, false);
             state_struct.push_str(&format!("    {}: Option<{}>,\n", field.name, rust_type));
         }
-
+        state_struct.push_str("    pub(crate) tao: Option<Arc<dyn TaoOperations>>,
+");
         state_struct.push_str("}\n\n");
         Ok(state_struct)
     }
@@ -133,6 +135,14 @@ use crate::infrastructure::global_tao::get_global_tao;
             impl_block.push_str("    }\n\n");
         }
 
+        // Add with_tao method
+        impl_block.push_str(
+            "    pub fn with_tao(mut self, tao: Arc<dyn TaoOperations>) -> Self {\n",
+        );
+        impl_block.push_str("        self.tao = Some(tao);\n");
+        impl_block.push_str("        self\n");
+        impl_block.push_str("    }\n\n");
+
         // Generate savex() method that uses TAO
         impl_block.push_str(&self.generate_savex_method(entity_type, struct_name)?);
 
@@ -151,7 +161,7 @@ use crate::infrastructure::global_tao::get_global_tao;
             "    pub async fn savex(self) -> AppResult<{}> {{\n",
             struct_name
         ));
-        savex_method.push_str("        let tao = get_global_tao()?.clone();\n");
+        savex_method.push_str("        let tao = self.tao.ok_or_else(|| AppError::Internal(\"Tao instance not provided to builder\").to_string()))?;\n");
         savex_method.push_str(&format!(
             "        tao.create_entity::<{}>(self).await\n",
             struct_name

@@ -301,11 +301,12 @@ pub trait TaoEntityBuilder: TaoOperations {
     /// Create entity using unified builder pattern
     async fn create_entity<E: EntBuilder + Send + Sync>(
         &self,
-        state: E::BuilderState,
+        mut state: E::BuilderState,
     ) -> AppResult<E>
     where
         E::BuilderState: Send + Sync,
     {
+        state.tao = Some(Arc::new(self.clone()));
         let id = self.generate_id(None).await?;
         let entity = E::build(state, id).map_err(AppError::Validation)?;
 

@@ -75,13 +75,16 @@ pub struct UserBuilderState {
     username: Option<String>,
     email: Option<String>,
     // ... all fields as Option<T>
+    pub(crate) tao: Option<Arc<dyn TaoOperations>>,
 }
 
 // Fluent interface on builder state
 impl UserBuilderState {
     pub fn username(mut self, username: String) -> Self { ... }
+    pub fn with_tao(mut self, tao: Arc<dyn TaoOperations>) -> Self { ... }
     pub async fn savex(self) -> AppResult<EntUser> {
-        get_global_tao()?.create_entity::<EntUser>(self).await
+        let tao = self.tao.ok_or_else(|| AppError::Internal("Tao instance not provided to builder".to_string()))?;
+        tao.create_entity::<EntUser>(self).await
     }
 }
 ```
@@ -212,7 +215,7 @@ The web server (`tao_web_server.rs`) provides REST endpoints:
 ### Adding New Entities
 1. Define entity schema in `schemas/` directory
 2. Run `cargo run --bin codegen` to generate code
-3. Implement custom business logic in `ent_impl.rs` files
+3. For any custom business logic first update the schema to support adding that logic and then generate the files using codegen
 4. Add API endpoints in web server if needed
 
 ### Builder Usage Patterns
@@ -279,6 +282,24 @@ let user = EntUser::create()
 
 ## AI Assistant Guidelines
 
+## Role and Expertise
+You are a world-class full-stack developer and UI/UX designer. Your expertise covers:
+- Expert system design skills in both low level API design and high level system design
+- Use of SOLID Principles and efficient design patterns for the use
+- Maintaining a cohesive image of the system when making changes
+- Rapid, efficient application development
+- The full spectrum from MVP creation to complex system architecture
+- Intuitive and beautiful design
+- You have an excellent understanding of modern large-scale systems
+- You're able to avoid fancy designs that look cool but will be hard to maintain over years.
+- You maintain one-way flow of control and never create cyclic dependencies.
+- You favour lose coupling through dependency injection and use the outward-to-inward approach with the hexagonal architecture
+- Your code design is intuitive rather than flashy
+- You have an excellent understaning of how single responsibility and ownership works in system design, ie, which component should be responsible for the ownership of some capability.
+- You don't create unnecessary abstractions. You may evolve them over time as the system gets large and complex.
+
+Adapt your approach based on project needs and user preferences, always aiming to guide users in efficiently creating functional applications.
+
 ### When Working on This Project
 1. **Always preserve existing patterns**: Follow established conventions for entities, builders, and traits
 2. **Use code generation**: Don't manually create entity files; use the codegen system
@@ -286,12 +307,47 @@ let user = EntUser::create()
 4. **Test thoroughly**: Verify both builder patterns (`build()` and `savex()`) work correctly
 5. **Update documentation**: Keep this file current with any architectural changes
 
+### Adaptive Workflow
+- At the beginning of every task when instructed to "follow your custom instructions", read the essential documents in this order:
+  1. `GEMINI.md` (for high-level context and goals)
+
+- If you try to read or edit another document before reading these, something BAD will happen.
+- Update documents based on significant changes, not minor steps
+- If conflicting information is found between documents, ask the user for clarification
+- Create files in the `ai_docs\userInstructions` folder for tasks that require user action
+  - Provide detailed, step-by-step instructions
+  - Include all necessary details for ease of use
+  - No need for a formal structure, but ensure clarity and completeness
+  - Use numbered lists for sequential steps, code blocks for commands or code snippets
+- Prioritize frequent testing: Run servers and test functionality regularly throughout development, rather than building extensive features before testing
+
+## User Interaction and Adaptive Behavior
+- Ask follow-up questions when critical information is missing for task completion
+- Adjust approach based on project complexity and user preferences
+- Strive for efficient task completion with minimal back-and-forth
+- Present key technical decisions concisely, allowing for user feedback
+
+## Code Editing and File Operations
+- Organize new projects efficiently, considering project type and dependencies
+- Refer to the main Cline system for specific file handling instructions
+
+Remember, your goal is to guide users in creating functional applications efficiently while maintaining comprehensive project documentation.
+
+
+### Critical Documentation and Workflow
+
+#### Documentation Management
+Maintain a `ai_docs\changelog` folder in the root directory (create if it doesn't exist) with the following essential files:
+1. For every code change log the planned changes using `ai_docs\templates\task_template.md` and follow the instructions there to generate a changelog before making the changes and put the status of the task as `PENDING`. Once you've completed the task, update the created task with status `COMPLETED`.
+2. Always update your memory in `GEMINI.md` after every task.
+3. If you were interrupted, use `ai_docs\changelog\*.md` to view your last plan and continue that until you're ready to update the task's status as `COMPLETED`.
+4. Create reference documents for future developers as needed, storing them in the `ai_docs\` folder
+5. Examples include styleAesthetic.md or wireframes.md
+
 ### Code Modification Principles
 - When adding new functionality, follow the existing trait-based patterns
 - If there is a major change to the system that requires not adhering to backward compatibility, ask first. During initial development phase we don't care about backward compatibility and can tear down the system and rebuild from scratch so it is ok to delete stuff and replace it. This is true for DB schema also. In the initial phase of development it is ok to delete the database and recreate.
 - Ensure all database operations are properly error-handled
-- For every code change log the planned changes using `ai_docs\templates\task_template.md` and follow the instructions there to generate a changelog before making the changes and put the status of the task as `PENDING`. Once you've completed the task, update the created task with status `COMPLETED`. Also update the GEMINI.md and your own memory so that the AI agent has the latest information on the system.
-- If you were interrupted, use `ai_docs\templates\task_template.md` to view your last plan and continue that. 
 
 ### Performance Considerations
 - Consider caching implications for new features
