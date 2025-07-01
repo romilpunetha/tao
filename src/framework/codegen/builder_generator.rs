@@ -248,7 +248,11 @@ use std::sync::Arc;
         let mut create_method = format!("impl {} {{\n", struct_name);
 
         create_method.push_str("    /// Create a new entity builder state (Meta's pattern: EntUser::create(vc))\n");
-        create_method.push_str(&format!("    pub fn create(vc: Arc<ViewerContext>) -> {} {{\n", state_name));
+        create_method.push_str(&format!("    pub fn create<V>(vc: V) -> {} \n", state_name));
+        create_method.push_str("    where \n");
+        create_method.push_str("        V: Into<Arc<ViewerContext>>,\n");
+        create_method.push_str("    {\n");
+        create_method.push_str(&format!("        let vc = vc.into();\n"));
         create_method.push_str(&format!("        let mut builder = {}::default();\n", state_name));
         create_method.push_str("        // Extract TAO from viewer context following Meta's pattern\n");
         create_method.push_str("        builder.set_tao(Arc::clone(&vc.tao));\n");

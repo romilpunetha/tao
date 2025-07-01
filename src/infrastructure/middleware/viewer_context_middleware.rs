@@ -11,18 +11,11 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    error::{AppError, AppResult},
     infrastructure::{
         tao_core::tao_core::TaoOperations,
         viewer::viewer::ViewerContext,
     },
 };
-
-/// Application state containing infrastructure dependencies
-#[derive(Clone)]
-pub struct AppState {
-    pub tao: Arc<dyn TaoOperations>,
-}
 
 /// Authentication information extracted from request
 #[derive(Debug, Clone)]
@@ -33,18 +26,26 @@ pub struct AuthInfo {
     pub is_authenticated: bool,
 }
 
+/// Trait for application state that contains TAO operations
+pub trait HasTaoOperations {
+    fn get_tao(&self) -> &Arc<dyn TaoOperations>;
+}
+
 /// ViewerContext middleware that creates request-scoped viewer context
 /// This implements Meta's pattern where business logic only sees ViewerContext
-pub async fn viewer_context_middleware(
-    State(app_state): State<AppState>,
+pub async fn viewer_context_middleware<T>(
+    State(app_state): State<T>,
     mut request: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, StatusCode> 
+where
+    T: HasTaoOperations + Clone + Send + Sync + 'static,
+{
     // Extract authentication information from request headers
     let auth_info = extract_auth_from_request(request.headers())?;
     
     // Create appropriate ViewerContext based on authentication
-    let viewer_context = create_viewer_context(auth_info, app_state.tao.clone())?;
+    let viewer_context = create_viewer_context(auth_info, app_state.get_tao().clone())?;
     
     // Inject ViewerContext into request extensions for handlers
     request.extensions_mut().insert(viewer_context);
@@ -64,7 +65,7 @@ fn extract_auth_from_request(headers: &HeaderMap) -> Result<AuthInfo, StatusCode
             
         // Parse different auth methods
         if auth_str.starts_with("Bearer ") {
-            let token = &auth_str[7..];
+            let _token = &auth_str[7..];
             // TODO: Validate JWT token and extract user info
             // For now, mock authenticated user
             return Ok(AuthInfo {

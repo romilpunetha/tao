@@ -2,8 +2,9 @@
 // Provides endpoints for creating users, relationships, and visualizing the graph
 
 use axum::{
-    extract::{Path, State},
+    extract::Path,
     http::StatusCode,
+    middleware,
     response::{IntoResponse, Json},
     routing::{get, post},
     Router,
@@ -14,7 +15,6 @@ use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use sqlx::postgres::PgPoolOptions;
 use tao_database::domains::user::EntUser;
@@ -24,11 +24,11 @@ use tao_database::{
     infrastructure::{
         association_registry::AssociationRegistry,
         database::database::{DatabaseInterface, PostgresDatabase},
+        middleware::{viewer_context_middleware, HasTaoOperations, Vc},
         query_router::{QueryRouterConfig, TaoQueryRouter},
         shard_topology::{ShardHealth, ShardInfo},
         tao_core::tao::Tao,
         tao_core::tao_core::{create_tao_association, current_time_millis, TaoId, TaoOperations},
-        viewer::viewer::ViewerContext,
     },
 };
 
@@ -82,21 +82,21 @@ struct AppState {
     tao: Arc<dyn TaoOperations>,
 }
 
+impl HasTaoOperations for AppState {
+    fn get_tao(&self) -> &Arc<dyn TaoOperations> {
+        &self.tao
+    }
+}
+
 // API Handlers
 async fn create_user(
-    State(state): State<AppState>,
+    vc: Vc,
     Json(request): Json<CreateUserRequest>,
 ) -> impl IntoResponse {
     info!("Creating user: {}", request.name);
 
-    // Create viewer context for this request (Meta's pattern)
-    let viewer_context = Arc::new(ViewerContext::system(
-        format!("create-user-{}", Uuid::new_v4()),
-        state.tao.clone()
-    ));
-
-    // Use Meta's authentic pattern
-    let result = EntUser::create(viewer_context)
+    // Use Meta's authentic pattern with clean ViewerContext extractor
+    let result = EntUser::create(vc)
         .username(request.name.to_lowercase().replace(" ", "_"))
         .email(request.email.clone())
         .full_name(request.name.clone())
@@ -140,7 +140,7 @@ async fn create_user(
 }
 
 async fn create_relationship(
-    State(state): State<AppState>,
+    vc: Vc,
     Json(request): Json<CreateRelationshipRequest>
 ) -> impl IntoResponse {
     info!(
@@ -155,8 +155,8 @@ async fn create_relationship(
         None,
     );
 
-    // Use TAO from app state (Meta's pattern)
-    let tao = &state.tao;
+    // Use TAO from ViewerContext (Meta's pattern) - no Arc cloning needed!
+    let tao = &vc.tao;
     match tao.assoc_add(association.clone()).await {
         Ok(_) => {
             let response = ApiResponse {
@@ -184,16 +184,10 @@ async fn create_relationship(
 }
 
 async fn get_user(
-    State(state): State<AppState>,
+    vc: Vc,
     Path(user_id): Path<TaoId>
 ) -> impl IntoResponse {
-    // Create viewer context for this request (Meta's pattern)
-    let viewer_context = Arc::new(ViewerContext::system(
-        format!("get-user-{}", Uuid::new_v4()),
-        state.tao.clone()
-    ));
-
-    match EntUser::gen_nullable(viewer_context, Some(user_id)).await {
+    match EntUser::gen_nullable(vc, Some(user_id)).await {
         Ok(Some(user)) => {
             let response = ApiResponse {
                 success: true,
@@ -230,14 +224,8 @@ async fn get_user(
     }
 }
 
-async fn get_all_users(State(state): State<AppState>) -> impl IntoResponse {
-    // Create viewer context for this request (Meta's pattern)
-    let viewer_context = Arc::new(ViewerContext::system(
-        format!("list-users-{}", Uuid::new_v4()),
-        state.tao.clone()
-    ));
-
-    match EntUser::gen_all(viewer_context).await {
+async fn get_all_users(vc: Vc) -> impl IntoResponse {
+    match EntUser::gen_all(vc).await {
         Ok(user_objs) => {
             let mut users = Vec::new();
             for user in user_objs {
@@ -271,16 +259,10 @@ async fn get_all_users(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-async fn get_graph_data(State(state): State<AppState>) -> impl IntoResponse {
+async fn get_graph_data(vc: Vc) -> impl IntoResponse {
     info!("Fetching graph data.");
 
-    // Create viewer context for this request (Meta's pattern)
-    let viewer_context = Arc::new(ViewerContext::system(
-        format!("graph-data-{}", Uuid::new_v4()),
-        state.tao.clone()
-    ));
-
-    let users = match EntUser::gen_all(viewer_context).await {
+    let users = match EntUser::gen_all(vc).await {
         Ok(users) => users,
         Err(e) => {
             warn!("Failed to get all users for graph data: {}", e);
@@ -384,14 +366,8 @@ async fn health_check() -> impl IntoResponse {
     }))
 }
 
-async fn seed_data_handler(State(state): State<AppState>) -> impl IntoResponse {
+async fn seed_data_handler(vc: Vc) -> impl IntoResponse {
     info!("Seeding sample data...");
-
-    // Create viewer context for this request (Meta's pattern)
-    let viewer_context = Arc::new(ViewerContext::system(
-        format!("seed-data-{}", Uuid::new_v4()),
-        state.tao.clone()
-    ));
 
     // Create sample users using EntUserBuilder
     let sample_users_data = vec![
@@ -448,7 +424,7 @@ async fn seed_data_handler(State(state): State<AppState>) -> impl IntoResponse {
     let mut users: Vec<EntUser> = Vec::new();
 
     for (name, email, bio, is_verified) in sample_users_data {
-        let user_builder = EntUser::create(viewer_context.clone())
+        let user_builder = EntUser::create(vc.clone())
             .username(name.to_lowercase().replace(" ", "_"))
             .email(email.to_string())
             .full_name(name.to_string())
@@ -606,6 +582,7 @@ async fn main() -> AppResult<()> {
         .route("/api/relationships", post(create_relationship))
         .route("/api/graph", get(get_graph_data))
         .route("/api/seed", post(seed_data_handler))
+        .layer(middleware::from_fn_with_state(app_state.clone(), viewer_context_middleware::<AppState>))
         .layer(
             ServiceBuilder::new().layer(
                 CorsLayer::new()

@@ -130,7 +130,11 @@ impl HasTao for EntUserBuilderState {
 
 impl EntUser {
     /// Create a new entity builder state (Meta's pattern: EntUser::create(vc))
-    pub fn create(vc: Arc<ViewerContext>) -> EntUserBuilderState {
+    pub fn create<V>(vc: V) -> EntUserBuilderState 
+    where 
+        V: Into<Arc<ViewerContext>>,
+    {
+        let vc = vc.into();
         let mut builder = EntUserBuilderState::default();
         // Extract TAO from viewer context following Meta's pattern
         builder.set_tao(Arc::clone(&vc.tao));

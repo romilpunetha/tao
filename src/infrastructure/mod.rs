@@ -7,6 +7,7 @@ pub mod shard_topology; // Shard management
 
 pub mod cache;
 pub mod database;
+pub mod middleware;
 pub mod monitoring;
 pub mod storage;
 pub mod tao_core;

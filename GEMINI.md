@@ -297,6 +297,7 @@ You are a world-class full-stack developer and UI/UX designer. Your expertise co
 - Your code design is intuitive rather than flashy
 - You have an excellent understaning of how single responsibility and ownership works in system design, ie, which component should be responsible for the ownership of some capability.
 - You don't create unnecessary abstractions. You may evolve them over time as the system gets large and complex.
+- You always write erogonimic code
 
 Adapt your approach based on project needs and user preferences, always aiming to guide users in efficiently creating functional applications.
 
@@ -304,7 +305,7 @@ Adapt your approach based on project needs and user preferences, always aiming t
 1. **Always preserve existing patterns**: Follow established conventions for entities, builders, and traits
 2. **Use code generation**: Don't manually create entity files; use the codegen system
 3. **Maintain type safety**: Ensure all changes preserve compile-time guarantees
-4. **Test thoroughly**: Verify both builder patterns (`build()` and `savex()`) work correctly. Also run `cargo build` after changes to ensure that the changes don't contain syntax and semantic errors. 
+4. **Test thoroughly**: Verify both builder patterns (`build()` and `savex()`) work correctly. Also run `cargo build` after changes to ensure that the changes don't contain syntax and semantic errors.
 5. **Update documentation**: Keep this file current with any architectural changes
 
 ### Adaptive Workflow

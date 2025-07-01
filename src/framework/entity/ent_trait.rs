@@ -52,7 +52,11 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     /// Load entity with nullable ID - returns None if not found (TYPE-SAFE)
     /// Only returns entities of the correct type, ensuring EntUser::gen_nullable(post_id) returns None
     /// Meta's pattern: EntUser::genNullable(vc, entity_id)
-    async fn gen_nullable(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>, entity_id: Option<i64>) -> AppResult<Option<Self>> {
+    async fn gen_nullable<V>(vc: V, entity_id: Option<i64>) -> AppResult<Option<Self>> 
+    where 
+        V: Into<Arc<crate::infrastructure::viewer::viewer::ViewerContext>> + Send,
+    {
+        let vc = vc.into();
         match entity_id {
             Some(id) => {
                 // Extract TAO from viewer context (Meta's pattern)
@@ -77,7 +81,11 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     /// Load entity with enforcement - errors if not found (TYPE-SAFE)
     /// Only loads entities of the correct type, ensuring type safety across the database layer
     /// Meta's pattern: EntUser::genEnforce(vc, entity_id)
-    async fn gen_enforce(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>, entity_id: i64) -> AppResult<Self> {
+    async fn gen_enforce<V>(vc: V, entity_id: i64) -> AppResult<Self> 
+    where 
+        V: Into<Arc<crate::infrastructure::viewer::viewer::ViewerContext>> + Send,
+    {
+        let vc = vc.into();
         // Extract TAO from viewer context (Meta's pattern)
         let tao_ops = &vc.tao;
         // Use type-aware query to ensure we only get entities of the correct type
@@ -128,7 +136,11 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     /// Delete entity by ID (TYPE-SAFE)
     /// Only deletes entities of the correct type, ensuring EntUser::delete(post_id) returns false
     /// Meta's pattern: EntUser::delete(vc, entity_id)
-    async fn delete(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>, entity_id: i64) -> AppResult<bool> {
+    async fn delete<V>(vc: V, entity_id: i64) -> AppResult<bool> 
+    where 
+        V: Into<Arc<crate::infrastructure::viewer::viewer::ViewerContext>> + Send,
+    {
+        let vc = vc.into();
         // Extract TAO from viewer context (Meta's pattern)
         let tao_ops = &vc.tao;
         // Use type-aware delete to ensure we only delete entities of the correct type
@@ -139,7 +151,11 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     /// Check if entity exists (TYPE-SAFE)
     /// Only checks for entities of the correct type, ensuring type safety
     /// Meta's pattern: EntUser::exists(vc, entity_id)
-    async fn exists(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>, entity_id: i64) -> AppResult<bool> {
+    async fn exists<V>(vc: V, entity_id: i64) -> AppResult<bool> 
+    where 
+        V: Into<Arc<crate::infrastructure::viewer::viewer::ViewerContext>> + Send,
+    {
+        let vc = vc.into();
         // Extract TAO from viewer context (Meta's pattern)
         let tao_ops = &vc.tao;
         // Use type-aware exists to ensure we only check for entities of the correct type
@@ -150,14 +166,18 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
     /// Batch load multiple entities (TYPE-SAFE)
     /// Efficiently loads multiple entities of the correct type in a single database query
     /// Meta's pattern: EntUser::loadMany(vc, entity_ids)
-    async fn load_many(
-        vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>,
+    async fn load_many<V>(
+        vc: V,
         entity_ids: Vec<i64>,
-    ) -> AppResult<Vec<Option<Self>>> {
+    ) -> AppResult<Vec<Option<Self>>> 
+    where 
+        V: Into<Arc<crate::infrastructure::viewer::viewer::ViewerContext>> + Send,
+    {
         if entity_ids.is_empty() {
             return Ok(Vec::new());
         }
 
+        let vc = vc.into();
         // Extract TAO from viewer context (Meta's pattern)
         let tao_ops = &vc.tao;
         // Use type-aware batch query for efficiency
@@ -188,7 +208,11 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
 
     /// Load all entities of this type (TYPE-SAFE)
     /// Meta's pattern: EntUser::genAll(vc)
-    async fn gen_all(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>) -> AppResult<Vec<Self>> {
+    async fn gen_all<V>(vc: V) -> AppResult<Vec<Self>> 
+    where 
+        V: Into<Arc<crate::infrastructure::viewer::viewer::ViewerContext>> + Send,
+    {
+        let vc = vc.into();
         // Extract TAO from viewer context (Meta's pattern)
         let tao_ops = &vc.tao;
         let objects = tao_ops
