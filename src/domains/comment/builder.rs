@@ -5,11 +5,11 @@
 use crate::framework::entity::ent_trait::Entity;
 use crate::framework::builder::ent_builder::EntBuilder;
 use crate::framework::builder::has_tao::HasTao;
+use crate::infrastructure::viewer::viewer::ViewerContext;
 use crate::infrastructure::tao_core::tao_core::{TaoEntityBuilder, TaoOperations};
 use crate::infrastructure::tao_core::tao_core::current_time_millis;
 use crate::error::{AppResult, AppError};
 use super::entity::EntComment;
-use crate::infrastructure::global_tao::get_global_tao;
 use std::sync::Arc;
 
 #[derive(Debug, Default)]
@@ -87,9 +87,12 @@ impl HasTao for EntCommentBuilderState {
 }
 
 impl EntComment {
-    /// Create a new entity builder state
-    pub fn create() -> EntCommentBuilderState {
-        EntCommentBuilderState::default()
+    /// Create a new entity builder state (Meta's pattern: EntUser::create(vc))
+    pub fn create(vc: Arc<ViewerContext>) -> EntCommentBuilderState {
+        let mut builder = EntCommentBuilderState::default();
+        // Extract TAO from viewer context following Meta's pattern
+        builder.set_tao(Arc::clone(&vc.tao));
+        builder
     }
 }
 

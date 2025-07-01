@@ -13,9 +13,9 @@ use crate::infrastructure::global_tao::get_global_tao;
 use std::io::Cursor;
 use regex;
 use crate::domains::post::EntPost;
-use crate::domains::event::EntEvent;
-use crate::domains::page::EntPage;
 use crate::domains::group::EntGroup;
+use crate::domains::page::EntPage;
+use crate::domains::event::EntEvent;
 
 impl Entity for EntUser {
     const ENTITY_TYPE: &'static str = "ent_user";

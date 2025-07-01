@@ -51,14 +51,14 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
 
     /// Load entity with nullable ID - returns None if not found (TYPE-SAFE)
     /// Only returns entities of the correct type, ensuring EntUser::gen_nullable(post_id) returns None
-    async fn gen_nullable(
-        tao: &Arc<dyn TaoOperations>,
-        entity_id: Option<i64>,
-    ) -> AppResult<Option<Self>> {
+    /// Meta's pattern: EntUser::genNullable(vc, entity_id)
+    async fn gen_nullable(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>, entity_id: Option<i64>) -> AppResult<Option<Self>> {
         match entity_id {
             Some(id) => {
+                // Extract TAO from viewer context (Meta's pattern)
+                let tao_ops = &vc.tao;
                 // Use type-aware query to ensure we only get entities of the correct type
-                let objects = tao
+                let objects = tao_ops
                     .get_by_id_and_type(vec![id], Self::ENTITY_TYPE.to_string())
                     .await?;
 
@@ -76,9 +76,12 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
 
     /// Load entity with enforcement - errors if not found (TYPE-SAFE)
     /// Only loads entities of the correct type, ensuring type safety across the database layer
-    async fn gen_enforce(tao: &Arc<dyn TaoOperations>, entity_id: i64) -> AppResult<Self> {
+    /// Meta's pattern: EntUser::genEnforce(vc, entity_id)
+    async fn gen_enforce(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>, entity_id: i64) -> AppResult<Self> {
+        // Extract TAO from viewer context (Meta's pattern)
+        let tao_ops = &vc.tao;
         // Use type-aware query to ensure we only get entities of the correct type
-        let objects = tao
+        let objects = tao_ops
             .get_by_id_and_type(vec![entity_id], Self::ENTITY_TYPE.to_string())
             .await?;
 
@@ -124,32 +127,41 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
 
     /// Delete entity by ID (TYPE-SAFE)
     /// Only deletes entities of the correct type, ensuring EntUser::delete(post_id) returns false
-    async fn delete(tao: &Arc<dyn TaoOperations>, entity_id: i64) -> AppResult<bool> {
+    /// Meta's pattern: EntUser::delete(vc, entity_id)
+    async fn delete(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>, entity_id: i64) -> AppResult<bool> {
+        // Extract TAO from viewer context (Meta's pattern)
+        let tao_ops = &vc.tao;
         // Use type-aware delete to ensure we only delete entities of the correct type
-        tao.obj_delete_by_type(entity_id, Self::ENTITY_TYPE.to_string())
+        tao_ops.obj_delete_by_type(entity_id, Self::ENTITY_TYPE.to_string())
             .await
     }
 
     /// Check if entity exists (TYPE-SAFE)
     /// Only checks for entities of the correct type, ensuring type safety
-    async fn exists(tao: &Arc<dyn TaoOperations>, entity_id: i64) -> AppResult<bool> {
+    /// Meta's pattern: EntUser::exists(vc, entity_id)
+    async fn exists(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>, entity_id: i64) -> AppResult<bool> {
+        // Extract TAO from viewer context (Meta's pattern)
+        let tao_ops = &vc.tao;
         // Use type-aware exists to ensure we only check for entities of the correct type
-        tao.obj_exists_by_type(entity_id, Self::ENTITY_TYPE.to_string())
+        tao_ops.obj_exists_by_type(entity_id, Self::ENTITY_TYPE.to_string())
             .await
     }
 
     /// Batch load multiple entities (TYPE-SAFE)
     /// Efficiently loads multiple entities of the correct type in a single database query
+    /// Meta's pattern: EntUser::loadMany(vc, entity_ids)
     async fn load_many(
-        tao: &Arc<dyn TaoOperations>,
+        vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>,
         entity_ids: Vec<i64>,
     ) -> AppResult<Vec<Option<Self>>> {
         if entity_ids.is_empty() {
             return Ok(Vec::new());
         }
 
+        // Extract TAO from viewer context (Meta's pattern)
+        let tao_ops = &vc.tao;
         // Use type-aware batch query for efficiency
-        let objects = tao
+        let objects = tao_ops
             .get_by_id_and_type(entity_ids.clone(), Self::ENTITY_TYPE.to_string())
             .await?;
 
@@ -174,8 +186,12 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
         Ok(results)
     }
 
-    async fn gen_all(tao: &Arc<dyn TaoOperations>) -> AppResult<Vec<Self>> {
-        let objects = tao
+    /// Load all entities of this type (TYPE-SAFE)
+    /// Meta's pattern: EntUser::genAll(vc)
+    async fn gen_all(vc: Arc<crate::infrastructure::viewer::viewer::ViewerContext>) -> AppResult<Vec<Self>> {
+        // Extract TAO from viewer context (Meta's pattern)
+        let tao_ops = &vc.tao;
+        let objects = tao_ops
             .get_all_objects_of_type(Self::ENTITY_TYPE.to_string(), Some(1000))
             .await?;
 

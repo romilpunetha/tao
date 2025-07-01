@@ -1,15 +1,15 @@
 # AI Task Template
 
 > **⚠️ CRITICAL INSTRUCTIONS FOR AI AGENTS ⚠️**
-> 
+>
 > **DO NOT MODIFY THIS TEMPLATE FILE!** This is a read-only template.
-> 
+>
 > **USAGE INSTRUCTIONS:**
 > 1. **READ ONLY**: Use this template as a reference - never edit this file
-> 2. **CREATE CHANGELOG**: Copy this template to create new changelog documents in `ai_docs/changelog/` 
+> 2. **CREATE CHANGELOG**: Copy this template to create new changelog documents in `ai_docs/changelog/`
 > 3. **NAMING CONVENTION**: Use incremental naming like SQL migrations: `001_task_name.md`, `002_next_task.md`, etc.
 > 4. **FILL COMPLETELY**: Every AI agent must fill this template completely when making changes to maintain system context and enable reproducibility
-> 
+>
 > **Example Usage:**
 > ```
 > cp ai_docs/templates/task_template.md ai_docs/changelog/001_add_builder_save_method.md
@@ -35,6 +35,11 @@
 - [ ] [Specific measurable outcome 1]
 - [ ] [Specific measurable outcome 2]
 - [ ] [Specific measurable outcome 3]
+
+### Status
+<!-- Define what "status" is -->
+- [x] PENDING
+- [ ] COMPLETED
 
 ---
 
@@ -177,7 +182,7 @@ User Input → [Component A] → [Component B] → Database
   - **Mitigation:** [How to prevent or handle it]
 
 ---
-
+ 
 ## 7. Testing Strategy
 
 ### Unit Testing

@@ -14,6 +14,7 @@ use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use sqlx::postgres::PgPoolOptions;
 use tao_database::domains::user::EntUser;
@@ -23,11 +24,11 @@ use tao_database::{
     infrastructure::{
         association_registry::AssociationRegistry,
         database::database::{DatabaseInterface, PostgresDatabase},
-        global_tao::{get_global_tao, set_global_tao},
         query_router::{QueryRouterConfig, TaoQueryRouter},
         shard_topology::{ShardHealth, ShardInfo},
         tao_core::tao::Tao,
         tao_core::tao_core::{create_tao_association, current_time_millis, TaoId, TaoOperations},
+        viewer::viewer::ViewerContext,
     },
 };
 
@@ -77,23 +78,34 @@ struct ApiResponse<T> {
 
 // Application state (empty as Tao is global)
 #[derive(Clone)]
-struct AppState {}
+struct AppState {
+    tao: Arc<dyn TaoOperations>,
+}
 
 // API Handlers
 async fn create_user(
-    State(_state): State<AppState>, // _state to indicate it's unused
+    State(state): State<AppState>,
     Json(request): Json<CreateUserRequest>,
 ) -> impl IntoResponse {
     info!("Creating user: {}", request.name);
 
-    let user_builder = EntUser::create()
+    // Create viewer context for this request (Meta's pattern)
+    let viewer_context = Arc::new(ViewerContext::system(
+        format!("create-user-{}", Uuid::new_v4()),
+        state.tao.clone()
+    ));
+
+    // Use Meta's authentic pattern
+    let result = EntUser::create(viewer_context)
         .username(request.name.to_lowercase().replace(" ", "_"))
         .email(request.email.clone())
         .full_name(request.name.clone())
         .bio(request.bio.unwrap_or("".to_string()))
-        .is_verified(true);
+        .is_verified(true)
+        .savex()
+        .await;
 
-    match user_builder.savex().await {
+    match result {
         Ok(user) => {
             info!(
                 "Created user: {} (ID: {})",
@@ -127,7 +139,10 @@ async fn create_user(
     }
 }
 
-async fn create_relationship(Json(request): Json<CreateRelationshipRequest>) -> impl IntoResponse {
+async fn create_relationship(
+    State(state): State<AppState>,
+    Json(request): Json<CreateRelationshipRequest>
+) -> impl IntoResponse {
     info!(
         "Creating relationship: {} -> {} ({})",
         request.from_user_id, request.to_user_id, request.relationship_type
@@ -140,18 +155,8 @@ async fn create_relationship(Json(request): Json<CreateRelationshipRequest>) -> 
         None,
     );
 
-    let tao = match get_global_tao() {
-        Ok(t) => t.clone(),
-        Err(e) => {
-            warn!("Failed to get global TAO instance: {}", e);
-            let response = ApiResponse::<RelationshipResponse> {
-                success: false,
-                data: None,
-                error: Some(format!("Failed to get TAO: {}", e)),
-            };
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(response));
-        }
-    };
+    // Use TAO from app state (Meta's pattern)
+    let tao = &state.tao;
     match tao.assoc_add(association.clone()).await {
         Ok(_) => {
             let response = ApiResponse {
@@ -178,11 +183,17 @@ async fn create_relationship(Json(request): Json<CreateRelationshipRequest>) -> 
     }
 }
 
-async fn get_user(Path(user_id): Path<TaoId>) -> impl IntoResponse {
-    // Tao operations are now accessed via get_global_tao()
-    let tao = get_global_tao().expect("TAO not initialized");
-    let tao_ops: Arc<dyn TaoOperations> = tao.clone();
-    match EntUser::gen_nullable(&tao_ops, Some(user_id)).await {
+async fn get_user(
+    State(state): State<AppState>,
+    Path(user_id): Path<TaoId>
+) -> impl IntoResponse {
+    // Create viewer context for this request (Meta's pattern)
+    let viewer_context = Arc::new(ViewerContext::system(
+        format!("get-user-{}", Uuid::new_v4()),
+        state.tao.clone()
+    ));
+
+    match EntUser::gen_nullable(viewer_context, Some(user_id)).await {
         Ok(Some(user)) => {
             let response = ApiResponse {
                 success: true,
@@ -219,10 +230,14 @@ async fn get_user(Path(user_id): Path<TaoId>) -> impl IntoResponse {
     }
 }
 
-async fn get_all_users() -> impl IntoResponse {
-    let tao = get_global_tao().expect("TAO not initialized");
-    let tao_ops: Arc<dyn TaoOperations> = tao.clone();
-    match EntUser::gen_all(&tao_ops).await {
+async fn get_all_users(State(state): State<AppState>) -> impl IntoResponse {
+    // Create viewer context for this request (Meta's pattern)
+    let viewer_context = Arc::new(ViewerContext::system(
+        format!("list-users-{}", Uuid::new_v4()),
+        state.tao.clone()
+    ));
+
+    match EntUser::gen_all(viewer_context).await {
         Ok(user_objs) => {
             let mut users = Vec::new();
             for user in user_objs {
@@ -256,12 +271,16 @@ async fn get_all_users() -> impl IntoResponse {
     }
 }
 
-async fn get_graph_data() -> impl IntoResponse {
+async fn get_graph_data(State(state): State<AppState>) -> impl IntoResponse {
     info!("Fetching graph data.");
 
-    let tao = get_global_tao().expect("TAO not initialized");
-    let tao_ops: Arc<dyn TaoOperations> = tao.clone();
-    let users = match EntUser::gen_all(&tao_ops).await {
+    // Create viewer context for this request (Meta's pattern)
+    let viewer_context = Arc::new(ViewerContext::system(
+        format!("graph-data-{}", Uuid::new_v4()),
+        state.tao.clone()
+    ));
+
+    let users = match EntUser::gen_all(viewer_context).await {
         Ok(users) => users,
         Err(e) => {
             warn!("Failed to get all users for graph data: {}", e);
@@ -365,8 +384,14 @@ async fn health_check() -> impl IntoResponse {
     }))
 }
 
-async fn seed_data_handler() -> impl IntoResponse {
+async fn seed_data_handler(State(state): State<AppState>) -> impl IntoResponse {
     info!("Seeding sample data...");
+
+    // Create viewer context for this request (Meta's pattern)
+    let viewer_context = Arc::new(ViewerContext::system(
+        format!("seed-data-{}", Uuid::new_v4()),
+        state.tao.clone()
+    ));
 
     // Create sample users using EntUserBuilder
     let sample_users_data = vec![
@@ -423,7 +448,7 @@ async fn seed_data_handler() -> impl IntoResponse {
     let mut users: Vec<EntUser> = Vec::new();
 
     for (name, email, bio, is_verified) in sample_users_data {
-        let user_builder = EntUser::create()
+        let user_builder = EntUser::create(viewer_context.clone())
             .username(name.to_lowercase().replace(" ", "_"))
             .email(email.to_string())
             .full_name(name.to_string())
@@ -569,10 +594,10 @@ async fn main() -> AppResult<()> {
     let tao = Arc::new(Tao::minimal(tao_core));
     println!("✅ TAO initialized with production features");
 
-    set_global_tao(tao).expect("Failed to set global TAO instance"); // Set global TAO
-
-    // Application state
-    let app_state = AppState {}; // Use global TAO
+    // Application state - inject TAO instead of using global state
+    let app_state = AppState { 
+        tao: tao as Arc<dyn TaoOperations> 
+    };
 
     let app = Router::new()
         .route("/api/health", get(health_check))

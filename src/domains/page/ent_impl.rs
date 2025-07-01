@@ -12,8 +12,8 @@ use thrift::protocol::{TCompactInputProtocol, TSerializable};
 use crate::infrastructure::global_tao::get_global_tao;
 use std::io::Cursor;
 use regex;
-use crate::domains::user::EntUser;
 use crate::domains::post::EntPost;
+use crate::domains::user::EntUser;
 
 impl Entity for EntPage {
     const ENTITY_TYPE: &'static str = "ent_page";
