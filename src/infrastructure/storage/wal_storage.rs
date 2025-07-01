@@ -379,8 +379,8 @@ pub struct WalStorageStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::infrastructure::storage::write_ahead_log::TaoOperation;
     use crate::infrastructure::tao_core::tao_core::TaoAssociation;
-use crate::infrastructure::storage::write_ahead_log::TaoOperation;
     use tempfile::tempdir;
 
     #[tokio::test]

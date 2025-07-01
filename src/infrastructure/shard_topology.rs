@@ -134,7 +134,8 @@ impl ConsistentHashRing {
         if let Some(shard_info) = self.shards.get_mut(&shard_id) {
             let old_health = shard_info.health;
             shard_info.health = health;
-            shard_info.last_health_check = crate::infrastructure::tao_core::tao_core::current_time_millis();
+            shard_info.last_health_check =
+                crate::infrastructure::tao_core::tao_core::current_time_millis();
 
             info!(
                 "Shard {} health changed: {:?} -> {:?}",

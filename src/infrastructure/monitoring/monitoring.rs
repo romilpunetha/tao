@@ -154,8 +154,7 @@ pub struct HealthStatus {
     pub services: HashMap<String, ComponentHealth>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ServiceStatus {
     Healthy,
     Degraded,
@@ -163,7 +162,6 @@ pub enum ServiceStatus {
     #[default]
     Unknown,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentHealth {

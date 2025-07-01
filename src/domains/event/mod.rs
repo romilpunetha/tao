@@ -1,9 +1,9 @@
 // Generated domain module for ent_event
 // DO NOT EDIT
 
-pub mod entity;
 pub mod builder;
 pub mod ent_impl;
+pub mod entity;
 
-pub use entity::*;
 pub use builder::*;
+pub use entity::*;

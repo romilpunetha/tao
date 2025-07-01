@@ -1,6 +1,8 @@
 // Ent trait implementation generator
 use super::utils;
-use crate::framework::schema::ent_schema::{EdgeDefinition, EntityType, FieldDefinition, SchemaRegistry};
+use crate::framework::schema::ent_schema::{
+    EdgeDefinition, EntityType, FieldDefinition, SchemaRegistry,
+};
 
 pub struct EntGenerator<'a> {
     _registry: &'a SchemaRegistry,
@@ -63,7 +65,10 @@ impl<'a> EntGenerator<'a> {
         imports.push_str("use crate::framework::entity::ent_trait::Entity;\n");
         imports.push_str("use crate::error::AppResult;\n");
         imports.push_str(&format!("use super::entity::{};\n", struct_name));
-        imports.push_str("use crate::infrastructure::tao_core::tao_core::{TaoOperations, TaoObject};\n");        imports.push_str("use crate::infrastructure::tao_core::tao::Tao;\n");
+        imports.push_str(
+            "use crate::infrastructure::tao_core::tao_core::{TaoOperations, TaoObject};\n",
+        );
+        imports.push_str("use crate::infrastructure::tao_core::tao::Tao;\n");
         imports.push_str("use thrift::protocol::{TCompactInputProtocol, TSerializable};\n");
         imports.push_str("use crate::infrastructure::global_tao::get_global_tao;\n");
         imports.push_str("use std::io::Cursor;\n");
@@ -77,24 +82,12 @@ impl<'a> EntGenerator<'a> {
             // Skip importing the current entity type to avoid duplicate imports
             if edge.target_entity != current_entity_type {
                 let entity_import = match edge.target_entity {
-                    EntityType::EntUser => {
-                        "use crate::domains::user::EntUser;"
-                    }
-                    EntityType::EntPost => {
-                        "use crate::domains::post::EntPost;"
-                    }
-                    EntityType::EntGroup => {
-                        "use crate::domains::group::EntGroup;"
-                    }
-                    EntityType::EntPage => {
-                        "use crate::domains::page::EntPage;"
-                    }
-                    EntityType::EntEvent => {
-                        "use crate::domains::event::EntEvent;"
-                    }
-                    EntityType::EntComment => {
-                        "use crate::domains::comment::EntComment;"
-                    }
+                    EntityType::EntUser => "use crate::domains::user::EntUser;",
+                    EntityType::EntPost => "use crate::domains::post::EntPost;",
+                    EntityType::EntGroup => "use crate::domains::group::EntGroup;",
+                    EntityType::EntPage => "use crate::domains::page::EntPage;",
+                    EntityType::EntEvent => "use crate::domains::event::EntEvent;",
+                    EntityType::EntComment => "use crate::domains::comment::EntComment;",
                 };
                 imported_entities.insert(entity_import);
             }
@@ -110,7 +103,10 @@ impl<'a> EntGenerator<'a> {
     }
 
     /// Helper to determine entity type from struct name
-    fn entity_type_from_struct_name(&self, struct_name: &str) -> crate::framework::schema::ent_schema::EntityType {
+    fn entity_type_from_struct_name(
+        &self,
+        struct_name: &str,
+    ) -> crate::framework::schema::ent_schema::EntityType {
         match struct_name {
             "EntUser" => crate::framework::schema::ent_schema::EntityType::EntUser,
             "EntPost" => crate::framework::schema::ent_schema::EntityType::EntPost,
@@ -350,13 +346,10 @@ impl<'a> EntGenerator<'a> {
                 edge_methods.push_str("        let tao = get_global_tao()?.clone();\n"); // Get global tao instance
                 edge_methods.push_str(&format!("        let neighbor_ids = tao.get_neighbor_ids(self.id(), \"{}\".to_string(), Some(100)).await?;\n", edge.name));
                 edge_methods.push('\n');
-                edge_methods.push_str(
-                    "        let mut results = Vec::new();\n",
-                );
-                edge_methods.push_str(
-                    "        for id in neighbor_ids {\n",
-                );
-                edge_methods.push_str("            if let Some(tao_obj) = tao.obj_get(id).await? {\n");
+                edge_methods.push_str("        let mut results = Vec::new();\n");
+                edge_methods.push_str("        for id in neighbor_ids {\n");
+                edge_methods
+                    .push_str("            if let Some(tao_obj) = tao.obj_get(id).await? {\n");
                 edge_methods.push_str(&format!(
                     "                if let Some(entity) = {}::from_tao_object(tao_obj).await? {{\n",
                     return_type
@@ -402,7 +395,11 @@ impl<'a> EntGenerator<'a> {
                     )); // Removed tao parameter
                     edge_methods.push_str("        let tao = get_global_tao()?.clone();\n"); // Get global tao instance
                     edge_methods.push_str(&format!("        // Fetch the {} to ensure it exists before creating an association\n", return_type));
-                    edge_methods.push_str(&format!("        let _{} = {}::from_tao_object(\n", edge.name.trim_end_matches('s'), return_type));
+                    edge_methods.push_str(&format!(
+                        "        let _{} = {}::from_tao_object(\n",
+                        edge.name.trim_end_matches('s'),
+                        return_type
+                    ));
                     edge_methods.push_str("            tao.obj_get(target_id).await?\n");
                     edge_methods.push_str(&format!("                .ok_or_else(|| crate::error::AppError::NotFound(format!(\"{} with id {{}} not found\", target_id)))?\n", return_type));
                     edge_methods.push_str("        ).await?;\n");

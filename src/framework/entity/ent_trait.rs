@@ -179,7 +179,6 @@ pub trait Entity: Send + Sync + Clone + Sized + TSerializable {
             .get_all_objects_of_type(Self::ENTITY_TYPE.to_string(), Some(1000))
             .await?;
 
-
         objects
             .into_iter()
             .map(|obj| Self::deserialize_from_bytes(&obj.data))

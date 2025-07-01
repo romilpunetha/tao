@@ -7,7 +7,9 @@ pub mod rust_generator;
 pub mod thrift_generator;
 pub mod utils;
 
-use crate::framework::schema::ent_schema::{EdgeDefinition, EntityType, FieldDefinition, SchemaRegistry};
+use crate::framework::schema::ent_schema::{
+    EdgeDefinition, EntityType, FieldDefinition, SchemaRegistry,
+};
 use std::collections::HashMap;
 
 /// Main code generator orchestrator

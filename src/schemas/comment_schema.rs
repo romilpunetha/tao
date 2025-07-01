@@ -1,7 +1,9 @@
 // Comment entity schema
 
 use crate::framework::schema::ent_schema::EntityType;
-use crate::framework::schema::ent_schema::{EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType};
+use crate::framework::schema::ent_schema::{
+    EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType,
+};
 
 /// Comment entity schema
 pub struct CommentSchema;

@@ -12,7 +12,10 @@ use tracing::info;
 use crate::framework::builder::ent_builder::EntBuilder;
 use crate::framework::entity::ent_trait::Entity;
 use crate::infrastructure::association_registry::AssociationRegistry;
-use crate::infrastructure::database::database::{DatabaseInterface, PostgresDatabase, AssocQuery, Association, Object, ObjectQuery, DatabaseTransaction};
+use crate::infrastructure::database::database::{
+    AssocQuery, Association, DatabaseInterface, DatabaseTransaction, Object, ObjectQuery,
+    PostgresDatabase,
+};
 use crate::infrastructure::query_router::{QueryRouterConfig, TaoQueryRouter};
 use crate::infrastructure::shard_topology::{ShardHealth, ShardId, ShardInfo};
 use sqlx::postgres::PgPoolOptions;
@@ -208,8 +211,7 @@ pub trait TaoOperations: Send + Sync + std::fmt::Debug {
         B::BuilderState: Send + Sync,
     {
         let id = self.generate_id(owner_id).await?;
-        let entity = B::build(state, id)
-            .map_err(|e| AppError::Validation(e.to_string()))?;
+        let entity = B::build(state, id).map_err(|e| AppError::Validation(e.to_string()))?;
 
         let validation_errors = entity.validate()?;
         if !validation_errors.is_empty() {
@@ -226,7 +228,6 @@ pub trait TaoOperations: Send + Sync + std::fmt::Debug {
 
         Ok(entity)
     }
-
 
     async fn generate_id(&self, owner_id: Option<TaoId>) -> AppResult<TaoId>;
     async fn create_object(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<()>;
@@ -306,8 +307,7 @@ pub trait TaoEntityBuilder: TaoOperations {
         E::BuilderState: Send + Sync,
     {
         let id = self.generate_id(None).await?;
-        let entity = E::build(state, id)
-            .map_err(AppError::Validation)?;
+        let entity = E::build(state, id).map_err(AppError::Validation)?;
 
         // Validate entity
         let validation_errors = entity.validate()?;
@@ -598,10 +598,7 @@ impl TaoOperations for TaoCore {
 
         for id in ids {
             let shard_id = self.query_router.get_shard_for_object(id).await;
-            shard_groups
-                .entry(shard_id)
-                .or_default()
-                .push(id);
+            shard_groups.entry(shard_id).or_default().push(id);
         }
 
         for (shard_id, shard_ids) in shard_groups {

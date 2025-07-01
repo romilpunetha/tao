@@ -1,7 +1,9 @@
 // Event entity schema
 
 use crate::framework::schema::ent_schema::EntityType;
-use crate::framework::schema::ent_schema::{EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType};
+use crate::framework::schema::ent_schema::{
+    EdgeDefinition, EntSchema, FieldDefault, FieldDefinition, FieldType,
+};
 
 /// Event entity schema
 pub struct EventSchema;

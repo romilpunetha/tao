@@ -501,9 +501,11 @@ async fn main() -> AppResult<()> {
     info!("🚀 Starting TAO Web Server...");
 
     // Initialize databases for sharding
-    let shard_urls = ["postgresql://postgres:password@localhost:5432/tao_shard_1".to_string(),
+    let shard_urls = [
+        "postgresql://postgres:password@localhost:5432/tao_shard_1".to_string(),
         "postgresql://postgres:password@localhost:5433/tao_shard_2".to_string(),
-        "postgresql://postgres:password@localhost:5434/tao_shard_3".to_string()];
+        "postgresql://postgres:password@localhost:5434/tao_shard_3".to_string(),
+    ];
 
     let query_router = Arc::new(TaoQueryRouter::new(QueryRouterConfig::default()).await);
 
@@ -550,10 +552,12 @@ async fn main() -> AppResult<()> {
     // let metrics = initialize_metrics_default().await?;
 
     // Create TaoCore instance
-    let tao_core = Arc::new(tao_database::infrastructure::tao_core::tao_core::TaoCore::new(
-        query_router.clone(),
-        association_registry.clone(),
-    ));
+    let tao_core = Arc::new(
+        tao_database::infrastructure::tao_core::tao_core::TaoCore::new(
+            query_router.clone(),
+            association_registry.clone(),
+        ),
+    );
 
     // Initialize TAO with all components
     let tao = Arc::new(Tao::minimal(tao_core));
@@ -563,7 +567,7 @@ async fn main() -> AppResult<()> {
 
     // Application state
     let app_state = AppState {}; // Use global TAO
- 
+
     let app = Router::new()
         .route("/api/health", get(health_check))
         .route("/api/users", get(get_all_users).post(create_user))

@@ -2,8 +2,8 @@
 // Shows unidirectional vs bidirectional edge configurations
 
 use crate::framework::schema::ent_schema::{
-    AnnotationDefinition, EdgeDefinition, EntSchema, EntityType, FieldDefault, FieldDefinition, FieldType,
-    FieldValidator, IndexDefinition,
+    AnnotationDefinition, EdgeDefinition, EntSchema, EntityType, FieldDefault, FieldDefinition,
+    FieldType, FieldValidator, IndexDefinition,
 };
 
 /// Post entity schema demonstrating various edge types and constraints

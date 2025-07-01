@@ -12,6 +12,7 @@ use crate::infrastructure::{
     cache::cache_layer::TaoMultiTierCache,
     database::database::DatabaseTransaction,
     monitoring::monitoring::MetricsCollector,
+    storage::write_ahead_log::TaoWriteAheadLog,
     tao_core::tao_core::{
         AssocType, TaoAssocQuery, TaoAssociation, TaoCore, TaoId, TaoObject, TaoOperations, TaoType,
     },
@@ -19,7 +20,6 @@ use crate::infrastructure::{
         BaseTao, CacheDecorator, CircuitBreakerDecorator, MetricsDecorator, TaoDecorator,
         WalDecorator,
     },
-    storage::write_ahead_log::TaoWriteAheadLog,
 };
 
 // Re-export core types for convenience
@@ -108,7 +108,12 @@ impl TaoOperations for Tao {
         self.decorated_tao.obj_exists_by_type(id, otype).await
     }
 
-    async fn obj_update_by_type(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<bool> {
+    async fn obj_update_by_type(
+        &self,
+        id: TaoId,
+        otype: TaoType,
+        data: Vec<u8>,
+    ) -> AppResult<bool> {
         self.decorated_tao.obj_update_by_type(id, otype, data).await
     }
 
@@ -132,32 +137,69 @@ impl TaoOperations for Tao {
         self.decorated_tao.assoc_count(id1, atype).await
     }
 
-    async fn assoc_range(&self, id1: TaoId, atype: AssocType, offset: u64, limit: u32) -> AppResult<Vec<TaoAssociation>> {
-        self.decorated_tao.assoc_range(id1, atype, offset, limit).await
+    async fn assoc_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        offset: u64,
+        limit: u32,
+    ) -> AppResult<Vec<TaoAssociation>> {
+        self.decorated_tao
+            .assoc_range(id1, atype, offset, limit)
+            .await
     }
 
-    async fn assoc_time_range(&self, id1: TaoId, atype: AssocType, high_time: i64, low_time: i64, limit: Option<u32>) -> AppResult<Vec<TaoAssociation>> {
-        self.decorated_tao.assoc_time_range(id1, atype, high_time, low_time, limit).await
+    async fn assoc_time_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        high_time: i64,
+        low_time: i64,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoAssociation>> {
+        self.decorated_tao
+            .assoc_time_range(id1, atype, high_time, low_time, limit)
+            .await
     }
 
     async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
         self.decorated_tao.assoc_exists(id1, atype, id2).await
     }
 
-    async fn get_by_id_and_type(&self, ids: Vec<TaoId>, otype: TaoType) -> AppResult<Vec<TaoObject>> {
+    async fn get_by_id_and_type(
+        &self,
+        ids: Vec<TaoId>,
+        otype: TaoType,
+    ) -> AppResult<Vec<TaoObject>> {
         self.decorated_tao.get_by_id_and_type(ids, otype).await
     }
 
-    async fn get_neighbors(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_neighbors(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         self.decorated_tao.get_neighbors(id, atype, limit).await
     }
 
-    async fn get_neighbor_ids(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>> {
+    async fn get_neighbor_ids(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoId>> {
         self.decorated_tao.get_neighbor_ids(id, atype, limit).await
     }
 
-    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
-        self.decorated_tao.get_all_objects_of_type(otype, limit).await
+    async fn get_all_objects_of_type(
+        &self,
+        otype: TaoType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
+        self.decorated_tao
+            .get_all_objects_of_type(otype, limit)
+            .await
     }
 
     async fn begin_transaction(&self) -> AppResult<DatabaseTransaction> {
@@ -200,7 +242,12 @@ impl<T: TaoOperations + ?Sized> TaoOperations for Arc<T> {
         (**self).obj_exists_by_type(id, otype).await
     }
 
-    async fn obj_update_by_type(&self, id: TaoId, otype: TaoType, data: Vec<u8>) -> AppResult<bool> {
+    async fn obj_update_by_type(
+        &self,
+        id: TaoId,
+        otype: TaoType,
+        data: Vec<u8>,
+    ) -> AppResult<bool> {
         (**self).obj_update_by_type(id, otype, data).await
     }
 
@@ -224,31 +271,64 @@ impl<T: TaoOperations + ?Sized> TaoOperations for Arc<T> {
         (**self).assoc_count(id1, atype).await
     }
 
-    async fn assoc_range(&self, id1: TaoId, atype: AssocType, offset: u64, limit: u32) -> AppResult<Vec<TaoAssociation>> {
+    async fn assoc_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        offset: u64,
+        limit: u32,
+    ) -> AppResult<Vec<TaoAssociation>> {
         (**self).assoc_range(id1, atype, offset, limit).await
     }
 
-    async fn assoc_time_range(&self, id1: TaoId, atype: AssocType, high_time: i64, low_time: i64, limit: Option<u32>) -> AppResult<Vec<TaoAssociation>> {
-        (**self).assoc_time_range(id1, atype, high_time, low_time, limit).await
+    async fn assoc_time_range(
+        &self,
+        id1: TaoId,
+        atype: AssocType,
+        high_time: i64,
+        low_time: i64,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoAssociation>> {
+        (**self)
+            .assoc_time_range(id1, atype, high_time, low_time, limit)
+            .await
     }
 
     async fn assoc_exists(&self, id1: TaoId, atype: AssocType, id2: TaoId) -> AppResult<bool> {
         (**self).assoc_exists(id1, atype, id2).await
     }
 
-    async fn get_by_id_and_type(&self, ids: Vec<TaoId>, otype: TaoType) -> AppResult<Vec<TaoObject>> {
+    async fn get_by_id_and_type(
+        &self,
+        ids: Vec<TaoId>,
+        otype: TaoType,
+    ) -> AppResult<Vec<TaoObject>> {
         (**self).get_by_id_and_type(ids, otype).await
     }
 
-    async fn get_neighbors(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_neighbors(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         (**self).get_neighbors(id, atype, limit).await
     }
 
-    async fn get_neighbor_ids(&self, id: TaoId, atype: AssocType, limit: Option<u32>) -> AppResult<Vec<TaoId>> {
+    async fn get_neighbor_ids(
+        &self,
+        id: TaoId,
+        atype: AssocType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoId>> {
         (**self).get_neighbor_ids(id, atype, limit).await
     }
 
-    async fn get_all_objects_of_type(&self, otype: TaoType, limit: Option<u32>) -> AppResult<Vec<TaoObject>> {
+    async fn get_all_objects_of_type(
+        &self,
+        otype: TaoType,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<TaoObject>> {
         (**self).get_all_objects_of_type(otype, limit).await
     }
 

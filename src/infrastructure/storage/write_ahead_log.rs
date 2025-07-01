@@ -7,8 +7,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::tao_core::tao_core::current_time_millis;
 use crate::infrastructure::storage::wal_storage::WalStorage;
+use crate::infrastructure::tao_core::tao_core::current_time_millis;
 
 /// Unique transaction identifier
 pub type TxnId = Uuid;

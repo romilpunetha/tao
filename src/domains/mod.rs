@@ -1,9 +1,9 @@
 // Generated domain modules
 // DO NOT EDIT
 
-pub mod event;
-pub mod post;
 pub mod comment;
+pub mod event;
 pub mod group;
-pub mod user;
 pub mod page;
+pub mod post;
+pub mod user;
